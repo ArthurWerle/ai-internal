@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify from "npm:fastify";
 import hello from "./api/rest/hello";
 
 const fastify = Fastify({
