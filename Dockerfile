@@ -10,4 +10,4 @@ RUN deno install
 
 EXPOSE 3005
 
-CMD ["deno", "run", "--allow-net", "main.ts"]
+CMD ["deno", "run", "--allow-net", "--allow-env", "--allow-read", "main.ts"]
