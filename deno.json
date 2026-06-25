@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net main.ts"
+  },
+  "imports": {
+    "fastify": "npm:fastify@^5.8.5",
+    "@api/": "./api/"
+  }
+}

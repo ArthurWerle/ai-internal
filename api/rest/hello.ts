@@ -1,4 +1,4 @@
-import { FastifyInstance } from "fastify/types/instance";
+import type { FastifyInstance } from "npm:fastify";
 
 async function routes(fastify: FastifyInstance) {
   fastify.get("/", async (request, reply) => {
