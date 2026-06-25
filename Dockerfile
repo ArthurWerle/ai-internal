@@ -6,7 +6,7 @@ COPY deno.json deno.lock ./
 RUN deno install
 
 COPY . .
-
+RUN deno install
 
 EXPOSE 3005
 
