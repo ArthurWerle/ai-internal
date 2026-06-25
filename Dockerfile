@@ -7,7 +7,7 @@ RUN deno install
 
 COPY . .
 
-RUN deno cache main.ts
+RUN deno cache --frozen main.ts
 
 EXPOSE 3005
 
