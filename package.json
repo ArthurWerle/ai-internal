@@ -9,12 +9,20 @@
   "target": "es2017 ",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --import=tsx main.ts"
+    "dev": "node --env-file=stack.env --import=tsx main.ts",
+    "db:push": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit push",
+    "db:generate": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit generate",
+    "db:migrate": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit migrate",
+    "db:studio": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit studio"
   },
   "dependencies": {
-    "fastify": "^5.8.5"
+    "drizzle-orm": "^1.0.0-rc.4",
+    "fastify": "^5.8.5",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^1.0.0-rc.4",
     "tsx": "^4.22.4"
   }
 }
