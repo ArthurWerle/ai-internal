@@ -3,7 +3,7 @@ export const config = {
   httpReferer: '',
   xTitle: 'AI Internal service',
   models: [
-    'arcee-ai/trinity-large-preview:free',
+    'openai/gpt-oss-20b',
   ],
   provider: {
     sort: {
