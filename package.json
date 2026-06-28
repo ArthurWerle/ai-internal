@@ -16,9 +16,14 @@
     "db:studio": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit studio"
   },
   "dependencies": {
+    "@langchain/community": "^1.1.29",
+    "@langchain/core": "^1.2.1",
+    "@langchain/openai": "^1.5.3",
     "drizzle-orm": "^1.0.0-rc.4",
     "fastify": "^5.8.5",
-    "pg": "^8.22.0"
+    "langchain": "^1.5.2",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",
