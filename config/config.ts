@@ -1,5 +1,6 @@
 export const config = {
   apiKey: process.env.OPENROUTER_API_KEY!,
+  mcpApiUrl: process.env.MCP_API_URL ?? 'http://mcp-api:3006',
   httpReferer: '',
   xTitle: 'AI Internal service',
   models: [

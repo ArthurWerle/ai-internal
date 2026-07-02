@@ -6,7 +6,9 @@ import health from "@api/rest/health.ts";
 import { Drizzle } from "./db/drizzle/drizzle.ts";
 import users from "@api/rest/users.ts";
 import { OpenRouterService } from "./services/open_router.ts";
+import { McpClientService } from "./services/mcp_client.ts";
 import ask from "@api/rest/ask.ts";
+import scanner from "@api/rest/scanner.ts";
 
 const fastify = Fastify({
   logger: true,
@@ -15,15 +17,18 @@ const fastify = Fastify({
 function addDecorators() {
   const db = new Drizzle().init()
   const openRouterClient = new OpenRouterService()
+  const mcpClient = new McpClientService()
 
   fastify.decorate('db', db)
   fastify.decorate('openRouterClient', openRouterClient)
+  fastify.decorate('mcpClient', mcpClient)
 }
 
 function registerRoutes() {
   fastify.register(health);
   fastify.register(users)
   fastify.register(ask)
+  fastify.register(scanner)
 }
 
 addDecorators()

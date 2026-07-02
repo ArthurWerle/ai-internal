@@ -1,6 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { config } from '../config/config.ts';
-import { SystemMessage, HumanMessage } from '@langchain/core/messages';
+import { SystemMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import type { z } from 'zod/v3';
 import { createAgent, providerStrategy } from 'langchain';
 import { CallbackHandler } from '@langfuse/langchain';
@@ -36,7 +36,7 @@ export class OpenRouterService {
 
   async generateStructured<T>(
     systemPrompt: string,
-    userPrompt: string,
+    userInput: string | BaseMessage,
     schema: z.ZodSchema<T>,
     options?: {
       userId?: string;
@@ -46,7 +46,6 @@ export class OpenRouterService {
     }
   ) {
     try {
-      // Create Langfuse callback handler with context
       const langfuseHandler = new CallbackHandler({
         userId: options?.userId,
         sessionId: options?.sessionId,
@@ -59,9 +58,10 @@ export class OpenRouterService {
         responseFormat: providerStrategy(schema),
       })
 
+      const userMessage = typeof userInput === 'string' ? new HumanMessage(userInput) : userInput;
       const messages = [
         new SystemMessage(systemPrompt),
-        new HumanMessage(userPrompt),
+        userMessage,
       ];
 
       const data = await agent.invoke(
