@@ -18,6 +18,7 @@
   "dependencies": {
     "@langchain/community": "^1.1.29",
     "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
     "@langchain/openai": "^1.5.3",
     "@langfuse/langchain": "^5.9.0",
     "@langfuse/otel": "^5.9.0",

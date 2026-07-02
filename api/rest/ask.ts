@@ -34,7 +34,6 @@ async function routes(fastify: FastifyInstance) {
       sessionId?: string;
     };
 
-    // Generate a unique trace name for better observability
     const response = await fastify.openRouterClient.generateStructured(
       "You are a helpful assistant.",
       prompt,

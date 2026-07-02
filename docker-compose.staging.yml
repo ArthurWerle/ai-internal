@@ -1,17 +1,17 @@
 services:
   app:
-    container_name: ai-internal
+    container_name: ai-internal-staging
     build: .
     ports:
-      - "3005:3005"
+      - "3040:3005"
     restart: unless-stopped
   postgres:
     image: postgres:16-alpine
-    container_name: ai-internal-postgres
+    container_name: ai-internal-staging-postgres
     env_file:
       - stack.env
     ports:
-      - 5439:5432
+      - 5440:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
