@@ -2,10 +2,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config } from '../config/config.ts';
 
-// If your mcp-go server uses SSE transport instead of StreamableHTTP,
-// import SSEClientTransport from '@modelcontextprotocol/sdk/client/sse.js'
-// and connect to `${config.mcpApiUrl}/sse` instead of `.../mcp`.
-
 export type McpCategory = { id: number; name: string };
 export type McpSubcategory = { id: number; name: string };
 export type McpLocation = { id: number; name: string };
@@ -38,9 +34,10 @@ export class McpClientService {
     let client: Client;
     try {
       client = await this.getClient();
-    } catch {
+    } catch (error) {
       this._client = null;
-      throw new Error(`Failed to connect to MCP server at ${config.mcpApiUrl}`);
+      console.error('❌ Failed to fetch context from MCP:', error);
+      throw new Error(error instanceof Error ? error.message : `Failed to connect to MCP server at ${config.mcpApiUrl}`);
     }
     try {
       const result = await client.callTool({ name, arguments: args });

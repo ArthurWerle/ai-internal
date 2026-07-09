@@ -16,6 +16,7 @@
     "db:studio": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit studio"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@langchain/community": "^1.1.29",
     "@langchain/core": "^1.2.1",
     "@langchain/langgraph": "^1.4.7",
@@ -24,6 +25,7 @@
     "@langfuse/otel": "^5.9.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/sdk-node": "^0.219.0",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^1.0.0-rc.4",
     "fastify": "^5.8.5",
     "langchain": "^1.5.2",
