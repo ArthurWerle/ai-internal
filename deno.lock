@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@fastify/cors@^11.3.0": "11.3.0",
     "npm:@langchain/community@^1.1.29": "1.1.29_@langchain+core@1.2.1__@opentelemetry+api@1.9.1__@opentelemetry+sdk-trace-base@2.8.0___@opentelemetry+api@1.9.1_pg@8.22.0_dotenv@17.4.2",
     "npm:@langchain/core@^1.2.1": "1.2.1_@opentelemetry+api@1.9.1_@opentelemetry+sdk-trace-base@2.8.0__@opentelemetry+api@1.9.1",
     "npm:@langchain/langgraph@^1.4.7": "1.4.7_@langchain+core@1.2.1__@opentelemetry+api@1.9.1__@opentelemetry+sdk-trace-base@2.8.0___@opentelemetry+api@1.9.1_zod@4.4.3_@opentelemetry+api@1.9.1_@opentelemetry+sdk-trace-base@2.8.0__@opentelemetry+api@1.9.1",
@@ -333,6 +334,13 @@
         "ajv",
         "ajv-formats",
         "fast-uri"
+      ]
+    },
+    "@fastify/cors@11.3.0": {
+      "integrity": "sha512-ggQGua+xHv1MvePbPr0v//xLYEsCXbWspquXCJS9Ot5YoRXq8J8ZWzHnxDBVnbtXosvistXo6LtNzOJswf64Fw==",
+      "dependencies": [
+        "fastify-plugin",
+        "toad-cache"
       ]
     },
     "@fastify/error@4.2.0": {
@@ -1384,6 +1392,9 @@
     "fast-uri@3.1.2": {
       "integrity": "sha512-rVjf7ArG3LTk+FS6Yw81V1DLuZl1bRbNrev6Tmd/9RaroeeRRJhAt7jg/6YFxbvAQXUCavSoZhPPj6oOx+5KjQ=="
     },
+    "fastify-plugin@6.0.0": {
+      "integrity": "sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg=="
+    },
     "fastify@5.8.5": {
       "integrity": "sha512-Yqptv59pQzPgQUSIm87hMqHJmdkb1+GPxdE6vW6FRyVE9G86mt7rOghitiU4JHRaTyDUk9pfeKmDeu70lAwM4Q==",
       "dependencies": [
@@ -2415,6 +2426,7 @@
     ],
     "packageJson": {
       "dependencies": [
+        "npm:@fastify/cors@^11.3.0",
         "npm:@langchain/community@^1.1.29",
         "npm:@langchain/core@^1.2.1",
         "npm:@langchain/langgraph@^1.4.7",

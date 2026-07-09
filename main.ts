@@ -2,6 +2,7 @@
 import "./config/langfuse.ts";
 
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import health from "@api/rest/health.ts";
 import { Drizzle } from "./db/drizzle/drizzle.ts";
 import { OpenRouterService } from "./services/open_router.ts";
@@ -23,10 +24,14 @@ function addDecorators() {
   fastify.decorate('mcpClient', mcpClient)
 }
 
-function registerRoutes() {
-  fastify.register(health);
-  fastify.register(ask)
-  fastify.register(scanner)
+async function registerRoutes() {
+  await fastify.register(cors, {
+    origin: true,
+  });
+
+  await fastify.register(health);
+  await fastify.register(ask)
+  await fastify.register(scanner)
 }
 
 addDecorators()
