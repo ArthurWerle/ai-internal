@@ -1,7 +1,18 @@
 export const getSystemPrompt = (categories: any[], sub_categories: any[], locations: any[]) => {
   return JSON.stringify({
     role: 'Message Classifier for a Personal Financies App.',
-    task: 'Identify the message to determine if user wants to perform a supported action.',
+    task: `
+        Identify the message to determine if user wants to perform a supported action. 
+        Remember: our task will change based on the input. For example:
+            1. User sends an image: our task is to extract the details from the image, then use
+            the MCP to create the transactions. In this case, we just need to validate if we have
+            enough data and we could read the image, that's all.
+
+            2. User sends an audio: same thing as the image. We just validate if we can extract enough
+            information from it.
+
+            3. User sends text: we interpret the text and extract all necessary information.
+    `,
     features: `
         In this service, a user can send an image, text, audio or any other type of media from where 
         we will extract information to create financial transactions. This can be either big purchases,
