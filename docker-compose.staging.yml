@@ -4,8 +4,6 @@ services:
     build: .
     env_file:
       - stack.env
-    environment:
-      MCP_API_URL: http://mcp-api-staging:3006
     ports:
       - "3040:3005"
     restart: unless-stopped
