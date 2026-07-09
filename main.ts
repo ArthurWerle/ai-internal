@@ -31,20 +31,22 @@ async function registerRoutes() {
   });
 
   await fastify.register(health);
-  await fastify.register(ask)
-  await fastify.register(scanner)
-  fastify.register(reportInsights)
+  await fastify.register(ask);
+  await fastify.register(scanner);
+  await fastify.register(reportInsights);
 }
 
-addDecorators()
-registerRoutes()
+async function start() {
+  addDecorators();
+  await registerRoutes();
 
-fastify.listen({ port: 3005, host: "0.0.0.0" }, function (err, address) {
-  if (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
+  const address = await fastify.listen({ port: 3005, host: "0.0.0.0" });
   console.log(`Server listening on ${address}`);
+}
+
+start().catch((err) => {
+  fastify.log.error(err);
+  process.exit(1);
 });
 
 const gracefulShutdown = async () => {
