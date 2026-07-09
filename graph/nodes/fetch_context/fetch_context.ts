@@ -11,8 +11,6 @@ export function createFetchContextNode(mcpClient: McpClientService) {
                 mcpClient.listLocations(),
             ]);
 
-            console.log('[debug] graph/nodes/fetch_context.ts', { categories, subcategories, locations })
-
             console.log(`✅ Context fetched: ${categories.length} categories, ${subcategories.length} subcategories, ${locations.length} locations`);
             return { categories, subcategories, locations };
         } catch (error) {

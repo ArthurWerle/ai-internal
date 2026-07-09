@@ -26,8 +26,6 @@ export function createIdentifyMessageNode(llmClient: OpenRouterService) {
             return { error: 'No messages in state.' };
         }
 
-        console.log('[debug] graph/nodes/identify_message.ts', { lastMessage })
-
         try {
             const systemPrompt = PROMPTS.getSystemPrompt(
                 state.categories ?? [],
@@ -35,15 +33,11 @@ export function createIdentifyMessageNode(llmClient: OpenRouterService) {
                 state.locations ?? [],
             );
 
-            console.log('[debug] graph/nodes/identify_message.ts', { systemPrompt })
-
             const result = await llmClient.generateStructured(
                 systemPrompt,
                 lastMessage,
                 ResponseSchema,
             );
-
-            console.log('[debug] graph/nodes/identify_message.ts', { result })
 
             if (!result.success) {
                 console.warn('⚠️  Identify message failed:', result.error);

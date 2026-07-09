@@ -55,24 +55,16 @@ async function routes(fastify: FastifyInstance) {
             };
         });
 
-        console.log('[debug] api/rest/scanner.ts', { contentParts })
-
         const humanMessage = new HumanMessage({ content: contentParts });
-
-        console.log('[debug] api/rest/scanner.ts', { humanMessage })
 
         const graph = buildReceiptScannerGraph(
             fastify.openRouterClient,
             fastify.mcpClient,
         );
 
-        console.log('[debug] api/rest/scanner.ts', { graph })
-
         const result = await graph.invoke({
             messages: [humanMessage],
         });
-
-        console.log('[debug] api/rest/scanner.ts', { result })
 
         if (result.error) {
             reply.code(422);

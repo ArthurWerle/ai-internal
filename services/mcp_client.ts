@@ -26,6 +26,7 @@ export class McpClientService {
   private async getClient(): Promise<Client> {
     if (this._client) return this._client;
     const client = new Client({ name: 'ai-internal', version: '1.0.0' });
+    console.log('[debug] McpClientService.getClient()', { url:  `${config.mcpApiUrl}/mcp`})
     const transport = new StreamableHTTPClientTransport(
       new URL(`${config.mcpApiUrl}/mcp`)
     );
@@ -38,9 +39,10 @@ export class McpClientService {
     let client: Client;
     try {
       client = await this.getClient();
-    } catch {
+    } catch (error) {
       this._client = null;
-      throw new Error(`Failed to connect to MCP server at ${config.mcpApiUrl}`);
+      console.error('❌ Failed to fetch context from MCP:', error);
+      throw new Error(error instanceof Error ? error.message : `Failed to connect to MCP server at ${config.mcpApiUrl}`);
     }
     try {
       const result = await client.callTool({ name, arguments: args });
