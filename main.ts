@@ -9,6 +9,7 @@ import { OpenRouterService } from "./services/open_router.ts";
 import { McpClientService } from "./services/mcp_client.ts";
 import ask from "@api/rest/ask.ts";
 import scanner from "@api/rest/scanner.ts";
+import reportInsights from "@api/rest/report_insights.ts";
 
 const fastify = Fastify({
   logger: true,
@@ -29,6 +30,7 @@ function registerRoutes() {
   fastify.register(users)
   fastify.register(ask)
   fastify.register(scanner)
+  fastify.register(reportInsights)
 }
 
 addDecorators()
