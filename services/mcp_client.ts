@@ -2,10 +2,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config } from '../config/config.ts';
 
-// If your mcp-go server uses SSE transport instead of StreamableHTTP,
-// import SSEClientTransport from '@modelcontextprotocol/sdk/client/sse.js'
-// and connect to `${config.mcpApiUrl}/sse` instead of `.../mcp`.
-
 export type McpCategory = { id: number; name: string };
 export type McpSubcategory = { id: number; name: string };
 export type McpLocation = { id: number; name: string };
@@ -26,7 +22,6 @@ export class McpClientService {
   private async getClient(): Promise<Client> {
     if (this._client) return this._client;
     const client = new Client({ name: 'ai-internal', version: '1.0.0' });
-    console.log('[debug] McpClientService.getClient()', { url:  `${config.mcpApiUrl}/mcp`})
     const transport = new StreamableHTTPClientTransport(
       new URL(`${config.mcpApiUrl}/mcp`)
     );
