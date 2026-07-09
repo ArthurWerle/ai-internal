@@ -4,11 +4,11 @@ export const config = {
   httpReferer: '',
   xTitle: 'AI Internal service',
   models: [
-    'openai/gpt-oss-20b',
+    'google/gemini-2.5-flash-lite',
   ],
   provider: {
     sort: {
-      by: 'throughput', // Route to model with highest throughput (fastest response)
+      by: 'throughput', 
       partition: 'none',
     },
   },
