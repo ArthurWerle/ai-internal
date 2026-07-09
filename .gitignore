@@ -1,3 +1,4 @@
 node_modules
 *.env
 INSTRUCTIONS.md
+stack.env
