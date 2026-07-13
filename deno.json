@@ -1,6 +1,7 @@
 {
   "tasks": {
-    "dev": "deno run -A --env=stack.env main.ts"
+    "dev": "deno run -A --env=stack.env main.ts",
+    "migrate": "deno run -A --env=stack.env db/drizzle/migrate.ts"
   },
   "imports": {
     "fastify": "npm:fastify@^5.8.5",
