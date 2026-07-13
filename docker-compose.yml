@@ -10,6 +10,7 @@ services:
     networks:
       - ai-internal-network
       - financer-transactions_transactions-network
+      - bff_back-end
   postgres:
     image: postgres:16-alpine
     container_name: ai-internal-postgres
@@ -31,4 +32,6 @@ networks:
   ai-internal-network:
     driver: bridge
   financer-transactions_transactions-network:
+    external: true
+  bff_back-end:
     external: true
