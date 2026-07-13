@@ -43,6 +43,7 @@ export class OpenRouterService {
       sessionId?: string;
       tags?: string[];
       metadata?: Record<string, unknown>;
+      history?: BaseMessage[];
     }
   ) {
     try {
@@ -61,6 +62,7 @@ export class OpenRouterService {
       const userMessage = typeof userInput === 'string' ? new HumanMessage(userInput) : userInput;
       const messages = [
         new SystemMessage(systemPrompt),
+        ...(options?.history ?? []),
         userMessage,
       ];
 

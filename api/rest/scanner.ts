@@ -1,11 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { HumanMessage } from "@langchain/core/messages";
 import { buildReceiptScannerGraph } from "../../graph/receipt_scanner.ts";
-
-type MessagePart =
-    | { type: 'text'; content: string }
-    | { type: 'image'; content: string }   // base64-encoded
-    | { type: 'audio'; content: string };  // base64-encoded
+import { buildMultimodalContentParts, type MessagePart } from "../../lib/multimodal_message.ts";
 
 async function routes(fastify: FastifyInstance) {
     fastify.post('/scan', {
@@ -38,22 +34,7 @@ async function routes(fastify: FastifyInstance) {
             sessionId?: string;
         };
 
-        const contentParts = messages.map(msg => {
-            if (msg.type === 'text') {
-                return { type: 'text' as const, text: msg.content };
-            }
-            if (msg.type === 'image') {
-                return {
-                    type: 'image_url' as const,
-                    image_url: { url: `data:image/jpeg;base64,${msg.content}` },
-                };
-            }
-            // audio — passed as input_audio; model support depends on OpenRouter provider
-            return {
-                type: 'input_audio' as const,
-                input_audio: { data: msg.content, format: 'mp3' },
-            };
-        });
+        const contentParts = buildMultimodalContentParts(messages);
 
         const humanMessage = new HumanMessage({ content: contentParts });
 

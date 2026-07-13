@@ -1,20 +1,33 @@
 import type { FastifyInstance } from "fastify";
+import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod/v3";
+import { buildAskGraph } from "../../graph/ask_graph.ts";
+import { buildMultimodalContentParts, type MessagePart } from "../../lib/multimodal_message.ts";
+import { toBaseMessages } from "../../services/chat_history.ts";
+import type { NewAttachment } from "../../services/chats.ts";
 
-export const TestSchema = z.object({
-    answer: z.string().describe("The answer to the prompt"),
-  });
+const ChatTitleSchema = z.object({
+  title: z.string().describe("A short, concise 3-6 word title summarizing this conversation"),
+});
 
 async function routes(fastify: FastifyInstance) {
   fastify.post("/ask", {
     schema: {
       body: {
         type: 'object',
-        required: ['prompt'],
+        required: ['messages'],
         properties: {
-          prompt: {
-            type: 'string',
-            description: 'The prompt to ask the assistant'
+          messages: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['type', 'content'],
+              properties: {
+                type: { type: 'string', enum: ['text', 'image', 'audio'] },
+                content: { type: 'string' },
+              },
+            },
           },
           userId: {
             type: 'string',
@@ -23,40 +36,98 @@ async function routes(fastify: FastifyInstance) {
           sessionId: {
             type: 'string',
             description: 'Optional session ID for grouping conversations'
+          },
+          chatId: {
+            type: 'string',
+            description: 'Optional chat ID to continue an existing conversation'
           }
         }
       }
     },
-  }, async (request) => {
-    const { prompt, userId, sessionId } = request.body as {
-      prompt: string;
+  }, async (request, reply) => {
+    const { messages, userId, sessionId, chatId } = request.body as {
+      messages: MessagePart[];
       userId?: string;
       sessionId?: string;
+      chatId?: string;
     };
 
-    const response = await fastify.openRouterClient.generateStructured(
-      "You are a helpful assistant.",
-      prompt,
-      TestSchema,
-      {
+    const isNewChat = !chatId;
+    const chat = chatId
+      ? await fastify.chatsService.getChat(chatId)
+      : await fastify.chatsService.createChat({ userId });
+
+    if (!chat) {
+      reply.code(404);
+      return { success: false, error: "Chat not found" };
+    }
+
+    const priorMessages = await fastify.chatsService.listMessages(chat.id);
+    const history = toBaseMessages(priorMessages);
+
+    const textContent = messages
+      .filter((message): message is Extract<MessagePart, { type: 'text' }> => message.type === 'text')
+      .map((message) => message.content)
+      .join('\n\n');
+    const attachments: NewAttachment[] = messages
+      .filter((message): message is Extract<MessagePart, { type: 'image' | 'audio' }> =>
+        message.type === 'image' || message.type === 'audio')
+      .map((message) => ({ type: message.type, content: message.content }));
+
+    await fastify.chatsService.addMessage({
+      chatId: chat.id,
+      role: "user",
+      content: textContent,
+      attachments,
+    });
+
+    const contentParts = buildMultimodalContentParts(messages);
+    const humanMessage = new HumanMessage({ content: contentParts });
+
+    const graph = buildAskGraph(fastify.openRouterClient, fastify.mcpClient);
+
+    const [result, titleResult] = await Promise.all([
+      graph.invoke({
+        messages: [...history, humanMessage],
         userId,
-        sessionId,
-        tags: ['ask-endpoint', 'production'],
+        sessionId: sessionId ?? chat.id,
+      }),
+      isNewChat && textContent
+        ? fastify.openRouterClient.generateStructured(
+            "Generate a short title for this conversation.",
+            textContent,
+            ChatTitleSchema,
+            { tags: ['ask-endpoint', 'chat-title'] },
+          )
+        : Promise.resolve(null),
+    ]);
+
+    if (titleResult?.success && titleResult.data) {
+      await fastify.chatsService.updateChat(chat.id, { title: titleResult.data.title });
+    }
+
+    if (result.answer) {
+      await fastify.chatsService.addMessage({
+        chatId: chat.id,
+        role: "assistant",
+        content: result.answer,
         metadata: {
-          endpoint: '/ask',
-          timestamp: new Date().toISOString(),
-          promptLength: prompt.length,
-        }
-      }
-    );
+          intent: result.intent,
+          queryTool: result.queryTool,
+        },
+      });
+    }
 
     return {
-      success: response.success,
-      data: response.data,
+      success: true,
+      chatId: chat.id,
+      intent: result.intent,
+      answer: result.answer,
+      ...(result.createdTransactions ? { transactions: result.createdTransactions } : {}),
+      ...(result.createdCategory ? { category: result.createdCategory } : {}),
+      ...(result.queryResult !== undefined ? { data: result.queryResult } : {}),
     };
   });
 }
-
-
 
 export default routes;
