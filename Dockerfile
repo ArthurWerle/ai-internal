@@ -10,4 +10,4 @@ RUN deno install
 
 EXPOSE 3005
 
-CMD ["deno", "run", "-A", "main.ts"]
+CMD ["sh", "-c", "deno run -A db/drizzle/migrate.ts && deno run -A main.ts"]
