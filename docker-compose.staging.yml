@@ -4,6 +4,10 @@ services:
     build: .
     env_file:
       - stack.env
+    environment:
+      # Reach postgres over the compose network (service name + internal port),
+      # not the host-published port. Overrides any DATABASE_URL from stack.env.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "3040:3005"
     restart: unless-stopped
@@ -28,6 +32,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - ai-internal-network
 volumes:
   postgres_data:
 
