@@ -14,10 +14,15 @@ export class OpenRouterService {
   private llmClient: ChatOpenAI;
 
   constructor() {
-    this.llmClient = new ChatOpenAI({
+    this.llmClient = this.buildClient(config.models);
+  }
+
+  private buildClient(models: string[], maxTokens?: number): ChatOpenAI {
+    return new ChatOpenAI({
       apiKey: config.apiKey,
-      modelName: config.models[0],
+      modelName: models[0],
       temperature: config.temperature,
+      ...(maxTokens ? { maxTokens } : {}),
       configuration: {
         baseURL: 'https://openrouter.ai/api/v1',
         defaultHeaders: {
@@ -28,7 +33,7 @@ export class OpenRouterService {
 
       // Pass provider routing and models array to OpenRouter
       modelKwargs: {
-        models: config.models,
+        models,
         provider: config.provider,
       },
     });
@@ -75,6 +80,52 @@ export class OpenRouterService {
         success: true,
         data: data.structuredResponse as T,
       }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  async generateText(
+    systemPrompt: string,
+    userInput: string,
+    options?: {
+      userId?: string;
+      sessionId?: string;
+      tags?: string[];
+      model?: string;
+      maxTokens?: number;
+    }
+  ) {
+    try {
+      const langfuseHandler = new CallbackHandler({
+        userId: options?.userId,
+        sessionId: options?.sessionId,
+        tags: options?.tags ?? ['openrouter', 'text-output'],
+      });
+
+      const client = options?.model
+        ? this.buildClient([options.model], options?.maxTokens)
+        : this.llmClient;
+
+      const response = await client.invoke(
+        [new SystemMessage(systemPrompt), new HumanMessage(userInput)],
+        { callbacks: [langfuseHandler] },
+      );
+
+      const content = typeof response.content === 'string'
+        ? response.content
+        : response.content
+            .filter((part): part is { type: 'text'; text: string } => (part as { type?: string }).type === 'text')
+            .map((part) => part.text)
+            .join('\n');
+
+      return {
+        success: true,
+        data: content,
+      };
     } catch (error) {
       return {
         success: false,

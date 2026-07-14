@@ -6,6 +6,7 @@ export const config = {
   models: [
     'google/gemini-2.5-flash-lite',
   ],
+  uiGenerationModel: process.env.UI_GENERATION_MODEL ?? 'anthropic/claude-sonnet-4.5',
   provider: {
     sort: {
       by: 'throughput', 
