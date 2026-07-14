@@ -6,9 +6,17 @@ export const config = {
   models: [
     'google/gemini-2.5-flash-lite',
   ],
+  // Stronger model for the /ask agentic tool loop; the cheap model above stays
+  // for titles, /scan and /report-insights.
+  agentModels: [
+    process.env.AGENT_MODEL ?? 'google/gemini-2.5-flash',
+  ],
+  agentTemperature: 0.2,
+  // LangGraph recursion limit for the agent loop (~2 graph steps per tool round).
+  agentRecursionLimit: Number(process.env.AGENT_RECURSION_LIMIT ?? '25'),
   provider: {
     sort: {
-      by: 'throughput', 
+      by: 'throughput',
       partition: 'none',
     },
   },

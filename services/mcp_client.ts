@@ -16,39 +16,11 @@ export type CreateTransactionPayload = {
   location?: string;
 };
 
-export type CreateCategoryPayload = {
+export type McpToolInfo = {
   name: string;
   description?: string;
-  color?: string;
+  inputSchema: Record<string, unknown>;
 };
-
-export type McpCategoryFull = { id: number; name: string; description?: string; color?: string };
-
-export type McpTransaction = { id: number | string; amount: number; type: string } & Record<string, unknown>;
-
-export type ListTransactionsParams = {
-  current_month?: boolean;
-  category_id?: number;
-  query?: string;
-  type?: 'income' | 'expense';
-  start_date?: string;
-  end_date?: string;
-  limit?: number;
-  offset?: number;
-};
-
-export type BiggestTransactionsParams = {
-  month?: number;
-  year?: number;
-};
-
-export type AverageByCategoryParams = {
-  category_id?: number;
-  start_date?: string;
-  end_date?: string;
-};
-
-export type McpAverage = Record<string, unknown>;
 
 export class McpClientService {
   private _client: Client | null = null;
@@ -64,7 +36,29 @@ export class McpClientService {
     return client;
   }
 
-  private async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  async listTools(): Promise<McpToolInfo[]> {
+    let client: Client;
+    try {
+      client = await this.getClient();
+    } catch (error) {
+      this._client = null;
+      console.error('❌ Failed to connect to MCP:', error);
+      throw new Error(error instanceof Error ? error.message : `Failed to connect to MCP server at ${config.mcpApiUrl}`);
+    }
+    try {
+      const result = await client.listTools();
+      return result.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema as Record<string, unknown>,
+      }));
+    } catch (err) {
+      this._client = null;
+      throw err;
+    }
+  }
+
+  async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     let client: Client;
     try {
       client = await this.getClient();
@@ -75,7 +69,8 @@ export class McpClientService {
     }
     try {
       const result = await client.callTool({ name, arguments: args });
-      const textContent = result.content.find(c => c.type === 'text');
+      const content = result.content as Array<{ type: string; text?: string }>;
+      const textContent = content.find(c => c.type === 'text');
       if (!textContent || textContent.type !== 'text') {
         throw new Error(`Tool ${name} returned no text content`);
       }
@@ -131,36 +126,4 @@ export class McpClientService {
     return this.callTool('create_transaction', payload as Record<string, unknown>);
   }
 
-  async createCategory(payload: CreateCategoryPayload): Promise<McpCategoryFull> {
-    return this.callTool('create_category', payload as Record<string, unknown>) as Promise<McpCategoryFull>;
-  }
-
-  async listTransactions(params: ListTransactionsParams = {}): Promise<McpTransaction[]> {
-    const data = await this.callTool('list_transactions', params as Record<string, unknown>) as any;
-    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
-  }
-
-  async getTransaction(id: number | string): Promise<McpTransaction> {
-    return this.callTool('get_transaction', { id }) as Promise<McpTransaction>;
-  }
-
-  async getLatestTransactions(limit?: number): Promise<McpTransaction[]> {
-    const data = await this.callTool('get_latest_transactions', limit ? { limit } : {}) as any;
-    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
-  }
-
-  async getBiggestTransactions(params: BiggestTransactionsParams = {}): Promise<McpTransaction[]> {
-    const data = await this.callTool('get_biggest_transactions', params as Record<string, unknown>) as any;
-    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
-  }
-
-  async getAverageByType(): Promise<McpAverage[]> {
-    const data = await this.callTool('get_average_by_type') as any;
-    return Array.isArray(data) ? data : (data.averages ?? data.data ?? []);
-  }
-
-  async getAverageByCategory(params: AverageByCategoryParams = {}): Promise<McpAverage[]> {
-    const data = await this.callTool('get_average_by_category', params as Record<string, unknown>) as any;
-    return Array.isArray(data) ? data : (data.averages ?? data.data ?? []);
-  }
 }
