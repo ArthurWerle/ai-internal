@@ -2,6 +2,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { OpenRouterService } from "../services/open_router.ts";
 import { McpClientService } from "../services/mcp_client.ts";
 import { ChatsService } from "../services/chats.ts";
+import { InsightsService } from "../services/insights.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -9,5 +10,6 @@ declare module "fastify" {
     openRouterClient: OpenRouterService;
     mcpClient: McpClientService;
     chatsService: ChatsService;
+    insightsService: InsightsService;
   }
 }
