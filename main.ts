@@ -12,6 +12,7 @@ import ask from "@api/rest/ask.ts";
 import scanner from "@api/rest/scanner.ts";
 import reportInsights from "@api/rest/report_insights.ts";
 import chats from "@api/rest/chats.ts";
+import generateUi from "@api/rest/generate_ui.ts";
 
 const fastify = Fastify({
   logger: true,
@@ -39,6 +40,7 @@ async function registerRoutes() {
   await fastify.register(scanner);
   await fastify.register(reportInsights);
   await fastify.register(chats);
+  await fastify.register(generateUi);
 }
 
 async function start() {
