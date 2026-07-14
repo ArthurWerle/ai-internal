@@ -79,7 +79,33 @@ export class McpClientService {
       if (!textContent || textContent.type !== 'text') {
         throw new Error(`Tool ${name} returned no text content`);
       }
-      return JSON.parse(textContent.text);
+
+      // Try to parse the response as JSON
+      try {
+        return JSON.parse(textContent.text);
+      } catch (parseError) {
+        // If JSON parsing fails, check if it's an error message from the MCP server
+        const text = textContent.text;
+
+        // Check for upstream error pattern
+        const upstreamErrorMatch = text.match(/upstream error response.*?body=({.*})/);
+        if (upstreamErrorMatch) {
+          try {
+            const errorBody = JSON.parse(upstreamErrorMatch[1]);
+            throw new Error(`MCP tool '${name}' failed: ${errorBody.error || errorBody.details || 'Unknown error'}`);
+          } catch {
+            // If we can't parse the error body, fall through
+          }
+        }
+
+        // Check if the entire response looks like an error message
+        if (text.includes('error') || text.includes('Error') || text.includes('upstream')) {
+          throw new Error(`MCP tool '${name}' returned an error: ${text.substring(0, 200)}`);
+        }
+
+        // Otherwise, it's just invalid JSON
+        throw new Error(`MCP tool '${name}' returned invalid JSON: ${text.substring(0, 100)}...`);
+      }
     } catch (err) {
       this._client = null;
       throw err;
