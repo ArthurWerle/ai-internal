@@ -16,6 +16,41 @@ export type CreateTransactionPayload = {
   location?: string;
 };
 
+export type CreateCategoryPayload = {
+  name: string;
+  description?: string;
+  color?: string;
+};
+
+export type McpCategoryFull = { id: number; name: string; description?: string; color?: string };
+
+export type McpTransaction = { id: number | string; amount: number; type: string } & Record<string, unknown>;
+
+export type ListTransactionsParams = {
+  current_month?: boolean;
+  category?: string;
+  category_id?: number;
+  query?: string;
+  type?: 'income' | 'expense';
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type BiggestTransactionsParams = {
+  month?: number;
+  year?: number;
+};
+
+export type AverageByCategoryParams = {
+  category_id?: number;
+  start_date?: string;
+  end_date?: string;
+};
+
+export type McpAverage = Record<string, unknown>;
+
 export type McpToolInfo = {
   name: string;
   description?: string;
@@ -126,4 +161,36 @@ export class McpClientService {
     return this.callTool('create_transaction', payload as Record<string, unknown>);
   }
 
+  async createCategory(payload: CreateCategoryPayload): Promise<McpCategoryFull> {
+    return this.callTool('create_category', payload as Record<string, unknown>) as Promise<McpCategoryFull>;
+  }
+
+  async listTransactions(params: ListTransactionsParams = {}): Promise<McpTransaction[]> {
+    const data = await this.callTool('list_transactions', params as Record<string, unknown>) as any;
+    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
+  }
+
+  async getTransaction(id: number | string): Promise<McpTransaction> {
+    return this.callTool('get_transaction', { id }) as Promise<McpTransaction>;
+  }
+
+  async getLatestTransactions(limit?: number): Promise<McpTransaction[]> {
+    const data = await this.callTool('get_latest_transactions', limit ? { limit } : {}) as any;
+    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
+  }
+
+  async getBiggestTransactions(params: BiggestTransactionsParams = {}): Promise<McpTransaction[]> {
+    const data = await this.callTool('get_biggest_transactions', params as Record<string, unknown>) as any;
+    return Array.isArray(data) ? data : (data.transactions ?? data.data ?? []);
+  }
+
+  async getAverageByType(): Promise<McpAverage[]> {
+    const data = await this.callTool('get_average_by_type') as any;
+    return Array.isArray(data) ? data : (data.averages ?? data.data ?? []);
+  }
+
+  async getAverageByCategory(params: AverageByCategoryParams = {}): Promise<McpAverage[]> {
+    const data = await this.callTool('get_average_by_category', params as Record<string, unknown>) as any;
+    return Array.isArray(data) ? data : (data.averages ?? data.data ?? []);
+  }
 }

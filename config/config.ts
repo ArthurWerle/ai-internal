@@ -14,6 +14,7 @@ export const config = {
   agentTemperature: 0.2,
   // LangGraph recursion limit for the agent loop (~2 graph steps per tool round).
   agentRecursionLimit: Number(process.env.AGENT_RECURSION_LIMIT ?? '25'),
+  uiGenerationModel: process.env.UI_GENERATION_MODEL ?? 'anthropic/claude-sonnet-4.5',
   provider: {
     sort: {
       by: 'throughput',
