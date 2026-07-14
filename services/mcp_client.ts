@@ -28,7 +28,7 @@ export type McpTransaction = { id: number | string; amount: number; type: string
 
 export type ListTransactionsParams = {
   current_month?: boolean;
-  category?: string;
+  category_id?: number;
   query?: string;
   type?: 'income' | 'expense';
   start_date?: string;

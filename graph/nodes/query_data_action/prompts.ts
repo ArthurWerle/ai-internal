@@ -1,4 +1,4 @@
-const getSystemPrompt = () => {
+const getSystemPrompt = (categories: Array<{ id: number; name: string }> = []) => {
   return JSON.stringify({
     role: 'Query planner for a Personal Finances app.',
     task: `
@@ -6,10 +6,11 @@ const getSystemPrompt = () => {
         to answer it, and fill in only the params that tool actually needs — leave everything else blank.
     `,
     current_date: new Date().toISOString(),
+    categories: categories.map(c => ({ id: c.id, name: c.name })),
     tools: {
       list_transactions: {
         description: 'List/filter transactions. Use for open-ended browsing or filtering (by category, type, date range, free-text search).',
-        params: ['current_month', 'category', 'query', 'type', 'start_date', 'end_date', 'limit', 'offset'],
+        params: ['current_month', 'category_id', 'query', 'type', 'start_date', 'end_date', 'limit', 'offset'],
       },
       get_transaction: {
         description: 'Get a single transaction by its ID. Only use if the user references a specific transaction ID.',
@@ -35,6 +36,7 @@ const getSystemPrompt = () => {
     instructions: [
       'Resolve relative dates/periods ("this month", "last year") into start_date/end_date or month/year using current_date as reference, in ISO format.',
       'Only fill params that are relevant to the chosen tool — leave the rest undefined.',
+      'To filter by category, match the category the user mentions to its id from the categories list using fuzzy matching, and set category_id. Never pass a category name — always resolve it to the numeric id.',
     ],
   });
 };
