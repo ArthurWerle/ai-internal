@@ -6,6 +6,7 @@ import type { z } from 'zod/v3';
 import { createAgent, providerStrategy } from 'langchain';
 import { GraphRecursionError } from '@langchain/langgraph';
 import { CallbackHandler } from '@langfuse/langchain';
+import { startActiveObservation, propagateAttributes } from '@langfuse/tracing';
 
 export type LLMResponse = {
   model: string;
@@ -118,6 +119,7 @@ export class OpenRouterService {
     systemPrompt: string;
     messages: BaseMessage[];
     tools: StructuredToolInterface[];
+    name?: string;
     userId?: string;
     sessionId?: string;
     tags?: string[];
@@ -133,35 +135,56 @@ export class OpenRouterService {
       tools: options.tools,
     });
 
-    try {
-      const result = await agent.invoke(
-        { messages: [new SystemMessage(options.systemPrompt), ...options.messages] },
-        { callbacks: [langfuseHandler], recursionLimit: config.agentRecursionLimit },
-      );
+    // Named root observation so the LangChain spans nest under one trace and
+    // post-run attributes (tools used) can be attached at the trace level.
+    return startActiveObservation(options.name ?? 'agent', async (span) => {
+      span.update({ input: extractText(options.messages[options.messages.length - 1]) });
 
-      const finalAiMessage = [...result.messages].reverse().find((m) => m instanceof AIMessage);
-      const answer = extractText(finalAiMessage);
-      const toolsUsed = result.messages
-        .filter((m): m is AIMessage => m instanceof AIMessage && (m.tool_calls?.length ?? 0) > 0)
-        .flatMap((m) => m.tool_calls!.map((c) => c.name));
+      try {
+        const result = await agent.invoke(
+          { messages: [new SystemMessage(options.systemPrompt), ...options.messages] },
+          { callbacks: [langfuseHandler], recursionLimit: config.agentRecursionLimit },
+        );
 
-      return { success: true, answer, toolsUsed: [...new Set(toolsUsed)] };
-    } catch (error) {
-      if (error instanceof GraphRecursionError) {
+        const finalAiMessage = [...result.messages].reverse().find((m) => m instanceof AIMessage);
+        const answer = extractText(finalAiMessage);
+        const toolCalls = result.messages
+          .filter((m): m is AIMessage => m instanceof AIMessage && (m.tool_calls?.length ?? 0) > 0)
+          .flatMap((m) => m.tool_calls!.map((c) => c.name));
+        const toolsUsed = [...new Set(toolCalls)];
+
+        // Surfaces tool usage in the Langfuse traces list, so it's filterable
+        // without opening each trace tree. Metadata values must be strings of
+        // at most 200 characters.
+        propagateAttributes(
+          {
+            metadata: {
+              toolsUsed: (toolsUsed.join(', ') || 'none').slice(0, 200),
+              toolCallCount: String(toolCalls.length),
+            },
+          },
+          () => {},
+        );
+
+        span.update({ output: answer });
+        return { success: true, answer, toolsUsed };
+      } catch (error) {
+        if (error instanceof GraphRecursionError) {
+          return {
+            success: false,
+            error: 'agent_recursion_limit',
+            answer: 'Sorry, that question needed too many steps — try asking something more specific.',
+            toolsUsed: [],
+          };
+        }
         return {
           success: false,
-          error: 'agent_recursion_limit',
-          answer: 'Sorry, that question needed too many steps — try asking something more specific.',
+          error: error instanceof Error ? error.message : String(error),
+          answer: '',
           toolsUsed: [],
         };
       }
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        answer: '',
-        toolsUsed: [],
-      };
-    }
+    }, { asType: 'agent' });
   }
 
   async generateText(

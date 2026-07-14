@@ -45,6 +45,7 @@ export async function runAskAgent(
         systemPrompt: SYSTEM_PROMPT.replace('{date}', new Date().toISOString().slice(0, 10)),
         messages: input.messages,
         tools,
+        name: 'ask-agent',
         userId: input.userId,
         sessionId: input.sessionId,
         tags: ['ask-endpoint', 'agent'],
