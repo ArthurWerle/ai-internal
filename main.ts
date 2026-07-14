@@ -8,11 +8,13 @@ import { Drizzle } from "./db/drizzle/drizzle.ts";
 import { OpenRouterService } from "./services/open_router.ts";
 import { McpClientService } from "./services/mcp_client.ts";
 import { ChatsService } from "./services/chats.ts";
+import { InsightsService } from "./services/insights.ts";
 import ask from "@api/rest/ask.ts";
 import scanner from "@api/rest/scanner.ts";
 import reportInsights from "@api/rest/report_insights.ts";
 import chats from "@api/rest/chats.ts";
 import generateUi from "@api/rest/generate_ui.ts";
+import insights from "@api/rest/insights.ts";
 
 const fastify = Fastify({
   logger: true,
@@ -23,11 +25,13 @@ function addDecorators() {
   const openRouterClient = new OpenRouterService()
   const mcpClient = new McpClientService()
   const chatsService = new ChatsService(db)
+  const insightsService = new InsightsService(db)
 
   fastify.decorate('db', db)
   fastify.decorate('openRouterClient', openRouterClient)
   fastify.decorate('mcpClient', mcpClient)
   fastify.decorate('chatsService', chatsService)
+  fastify.decorate('insightsService', insightsService)
 }
 
 async function registerRoutes() {
@@ -41,6 +45,7 @@ async function registerRoutes() {
   await fastify.register(reportInsights);
   await fastify.register(chats);
   await fastify.register(generateUi);
+  await fastify.register(insights);
 }
 
 async function start() {
