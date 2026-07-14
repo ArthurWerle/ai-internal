@@ -28,6 +28,7 @@ export type McpTransaction = { id: number | string; amount: number; type: string
 
 export type ListTransactionsParams = {
   current_month?: boolean;
+  category?: string;
   category_id?: number;
   query?: string;
   type?: 'income' | 'expense';
@@ -50,6 +51,12 @@ export type AverageByCategoryParams = {
 
 export type McpAverage = Record<string, unknown>;
 
+export type McpToolInfo = {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+};
+
 export class McpClientService {
   private _client: Client | null = null;
 
@@ -64,7 +71,29 @@ export class McpClientService {
     return client;
   }
 
-  private async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  async listTools(): Promise<McpToolInfo[]> {
+    let client: Client;
+    try {
+      client = await this.getClient();
+    } catch (error) {
+      this._client = null;
+      console.error('❌ Failed to connect to MCP:', error);
+      throw new Error(error instanceof Error ? error.message : `Failed to connect to MCP server at ${config.mcpApiUrl}`);
+    }
+    try {
+      const result = await client.listTools();
+      return result.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema as Record<string, unknown>,
+      }));
+    } catch (err) {
+      this._client = null;
+      throw err;
+    }
+  }
+
+  async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     let client: Client;
     try {
       client = await this.getClient();
@@ -75,7 +104,8 @@ export class McpClientService {
     }
     try {
       const result = await client.callTool({ name, arguments: args });
-      const textContent = result.content.find(c => c.type === 'text');
+      const content = result.content as Array<{ type: string; text?: string }>;
+      const textContent = content.find(c => c.type === 'text');
       if (!textContent || textContent.type !== 'text') {
         throw new Error(`Tool ${name} returned no text content`);
       }

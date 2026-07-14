@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { HumanMessage } from "@langchain/core/messages";
 import { z } from "zod/v3";
-import { buildAskGraph } from "../../graph/ask_graph.ts";
+import { runAskAgent } from "../../graph/ask_agent.ts";
 import { buildMultimodalContentParts, type MessagePart } from "../../lib/multimodal_message.ts";
 import { toBaseMessages } from "../../services/chat_history.ts";
 import type { NewAttachment } from "../../services/chats.ts";
@@ -84,10 +84,8 @@ async function routes(fastify: FastifyInstance) {
     const contentParts = buildMultimodalContentParts(messages);
     const humanMessage = new HumanMessage({ content: contentParts });
 
-    const graph = buildAskGraph(fastify.openRouterClient, fastify.mcpClient);
-
     const [result, titleResult] = await Promise.all([
-      graph.invoke({
+      runAskAgent(fastify.openRouterClient, fastify.mcpClient, {
         messages: [...history, humanMessage],
         userId,
         sessionId: sessionId ?? chat.id,
@@ -112,8 +110,8 @@ async function routes(fastify: FastifyInstance) {
         role: "assistant",
         content: result.answer,
         metadata: {
-          intent: result.intent,
-          queryTool: result.queryTool,
+          intent: "agent",
+          toolsUsed: result.toolsUsed,
         },
       });
     }
@@ -121,11 +119,9 @@ async function routes(fastify: FastifyInstance) {
     return {
       success: true,
       chatId: chat.id,
-      intent: result.intent,
+      intent: "agent",
       answer: result.answer,
-      ...(result.createdTransactions ? { transactions: result.createdTransactions } : {}),
-      ...(result.createdCategory ? { category: result.createdCategory } : {}),
-      ...(result.queryResult !== undefined ? { data: result.queryResult } : {}),
+      toolsUsed: result.toolsUsed,
     };
   });
 }
