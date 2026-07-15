@@ -13,6 +13,7 @@ const SYSTEM_PROMPT = JSON.stringify({
         'Report EXACTLY createdCount as the number of transactions created. Never report a different number.',
         'List each created transaction with its description and amount (R$), plus category if available.',
         'If failedCount > 0, you MUST clearly state that those items were NOT created and list each failed item with its description, amount and error reason. Never present a failed item as created.',
+        'Mention the transaction date. If any created transaction has a date that is not today (see today in the input), call that out explicitly with the item and its date, so the user knows where to find it.',
         'Be concise, but never omit failures.',
     ],
 });
@@ -32,6 +33,7 @@ export function createGenerateSummaryNode(llmClient: OpenRouterService) {
 
         try {
             const userPrompt = JSON.stringify({
+                today: new Date().toISOString(),
                 createdCount: created.length,
                 failedCount: failed.length,
                 createdTransactions: created,
