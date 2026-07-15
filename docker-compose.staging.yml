@@ -16,7 +16,12 @@ services:
         condition: service_healthy
     networks:
       - ai-internal-network
-      - financer-transactions_transactions-network
+      # mcp-api-staging lives on this network. Staging must NOT join prod
+      # networks (e.g. financer-transactions_transactions-network): the
+      # "mcp-api" service alias exists in both environments, and on a shared
+      # network Docker DNS round-robins between prod and staging containers,
+      # silently splitting traffic across environments. Point MCP_API_URL at
+      # the unique container name (http://mcp-api-staging:3006).
       - staging_bff_back-end
   postgres:
     image: postgres:16-alpine
@@ -38,9 +43,7 @@ volumes:
   postgres_data:
 
 networks:
-  ai-internal-network:  
+  ai-internal-network:
     driver: bridge
-  financer-transactions_transactions-network:
-    external: true
   staging_bff_back-end:
     external: true
