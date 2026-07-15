@@ -18,6 +18,9 @@ import insights from "@api/rest/insights.ts";
 
 const fastify = Fastify({
   logger: true,
+  // Receipt/audio scans arrive as base64-in-JSON and easily exceed Fastify's
+  // 1 MiB default; match the bff's express.json "15mb" limit.
+  bodyLimit: 15 * 1024 * 1024,
 });
 
 function addDecorators() {
