@@ -5,7 +5,7 @@ import { PROMPTS } from './prompts.ts';
 
 const ExtractedItemSchema = z.object({
     categoryId: z.number().optional().describe('ID of the matching category'),
-    subcategoryId: z.number().optional().describe('ID of the matching subcategory'),
+    subcategoryId: z.number().optional().describe('ID of the best-matching subcategory from the sub_categories list — always set it when any subcategory plausibly matches; omit only when none does'),
     datetime: z.string().describe('Transaction date and time in ISO format'),
     value: z.number().describe('Exact amount in BRL'),
     type: z.enum(['income', 'expense']).optional().describe('Transaction type — default to expense'),

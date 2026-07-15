@@ -1,15 +1,20 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import { OpenRouterService } from '../services/open_router.ts';
-import { McpClientService } from '../services/mcp_client.ts';
+import { McpClientService, type McpCategory, type McpSubcategory } from '../services/mcp_client.ts';
 import { getMcpLangChainTools } from '../services/mcp_tools.ts';
 
-const SYSTEM_PROMPT = JSON.stringify({
+export const buildSystemPrompt = (date: string, categories: McpCategory[], subcategories: McpSubcategory[]) => JSON.stringify({
     role: "Personal finance assistant with direct access to the user's finance tools.",
     task: 'Answer the user\'s question or perform the requested action by calling tools as many times as needed. Inspect each tool result before deciding the next call.',
+    categories: categories.map((c) => ({ id: c.id, name: c.name })),
+    sub_categories: subcategories.map((s) => ({ id: s.id, name: s.name })),
     rules: [
-        'Resolve category/subcategory/location NAMES to numeric IDs by calling the relevant list tools first — never pass a name where an ID is expected.',
-        "Today's date is {date} — compute relative ranges (this month, last month) from it.",
+        'Resolve category/subcategory/location NAMES to numeric IDs using the categories/sub_categories lists above or the relevant list tools — never pass a name where an ID is expected.',
+        `Today's date is ${date} — compute relative ranges (this month, last month) from it.`,
         'If an image or audio attachment is present, extract the transaction details from it before creating anything.',
+        'Every transaction you create — from a receipt image, audio, or text — MUST include both category_id and the best-matching subcategory_id from the sub_categories list, for EVERY item. Never skip subcategory_id when a plausible match exists.',
+        'Only omit subcategory_id when no existing subcategory reasonably matches the item. NEVER create new subcategories yourself.',
+        'If the categories or sub_categories lists above are empty, call list_categories and list_subcategories before creating any transaction.',
         'Only state numbers that came from tool results — never invent data.',
         'If a tool returns an error, adjust the arguments and retry once; if it still fails, tell the user plainly what went wrong without leaking internal error details.',
         'Final reply: short, friendly, same language as the user. 1-4 sentences unless listing data.',
@@ -41,8 +46,21 @@ export async function runAskAgent(
         };
     }
 
+    // Preload the lists so the model always sees the available options and can
+    // assign category_id/subcategory_id without deciding to call the list tools.
+    let categories: McpCategory[] = [];
+    let subcategories: McpSubcategory[] = [];
+    try {
+        [categories, subcategories] = await Promise.all([
+            mcpClient.listCategories(),
+            mcpClient.listSubcategories(),
+        ]);
+    } catch (error) {
+        console.warn('⚠️  Failed to preload categories/subcategories, agent will fall back to list tools:', error);
+    }
+
     const result = await llmClient.runAgent({
-        systemPrompt: SYSTEM_PROMPT.replace('{date}', new Date().toISOString().slice(0, 10)),
+        systemPrompt: buildSystemPrompt(new Date().toISOString().slice(0, 10), categories, subcategories),
         messages: input.messages,
         tools,
         userId: input.userId,

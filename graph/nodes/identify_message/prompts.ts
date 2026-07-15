@@ -28,14 +28,14 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
             keywords: ['receipt', 'nota', 'nota fiscal', 'NF', 'create this transaction', 'scan this'],
             required_information: ['value', 'datetime'],
             optional_information: ['location'],
-            notes: 'Categories will mostly need to be infered.'
+            notes: 'Categories and subcategories will mostly need to be infered.'
         },
         audio: {
             description: 'User sends an audio for us to extract information. This will mainly be a small recording about a purchase.',
             keywords: ['I bought', 'eu comprei', 'gastei', 'fiz essa compra'],
             required_information: ['value', 'datetime'],
             optional_information: ['location'],
-            notes: 'Categories will most likely need to be infered.'
+            notes: 'Categories and subcategories will most likely need to be infered.'
         },
         text: {
             description: 'User sends a message for us to extract information. This will mainly be a quick text about the purchases.',
@@ -47,6 +47,12 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
     },
     extraction_instructions: {
         category: 'Match the category mentioned in the question to the ID from the categories list. Use fuzzy matching. Use the most likely one.',
+        subcategory: `
+            ALWAYS try to assign the best-matching subcategory from the sub_categories list to EVERY item,
+            inferring it from the item description when it is not stated explicitly (it almost never is).
+            Use fuzzy matching. Only omit subcategoryId when no existing subcategory reasonably matches —
+            never invent a subcategory ID that is not in the list.
+        `,
         datetime: `
             Parse relative dates (today, tomorrow) and times. Convert to ISO format. Use current_date as reference.
             A receipt has exactly ONE purchase datetime: every item extracted from the same receipt MUST use
@@ -71,24 +77,27 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
         {
             input: 'Comprei um bolo por 20',
             output: { items: [
-                { category: 'food', category_id: 1, subcategory: 'Doces e snacks', subcategory_id: '1', datetime: '2026-02-12T16:00:00.000Z', value: '20', description: 'Bolo', location: null }
+                // e.g. category 1 = 'food', subcategory 1 = 'Doces e snacks'
+                { categoryId: 1, subcategoryId: 1, datetime: '2026-02-12T16:00:00.000Z', value: 20, description: 'Bolo' }
             ]}
         },
         {
             input: '[image showing a receipt of a purchase of 3 different items]',
-            output: { items: 
+            output: { items:
                 [
-                    { category: 'grocery', category_id: 2, subcategory: 'Bebidas', subcategory_id: '2', datetime: '2026-05-12T16:00:00.000Z', value: '19,90', description: 'Café', location: 'Mercado 1' },
-                    { category: 'grocery', category_id: 2, subcategory: 'Proteínas', subcategory_id: '3', datetime: '2026-05-12T16:00:00.000Z', value: '52', description: 'Peito de frango', location: 'Mercado 1' },
-                    { category: 'grocery', category_id: 2, subcategory: 'Laticínios', subcategory_id: '4', datetime: '2026-05-12T16:00:00.000Z', value: '46,50', description: 'Queijo', location: 'Mercado 1' },
+                    // e.g. category 2 = 'grocery'; subcategories 2/3/4 = 'Bebidas'/'Proteínas'/'Laticínios'
+                    { categoryId: 2, subcategoryId: 2, datetime: '2026-05-12T16:00:00.000Z', value: 19.90, description: 'Café', location: 'Mercado 1' },
+                    { categoryId: 2, subcategoryId: 3, datetime: '2026-05-12T16:00:00.000Z', value: 52, description: 'Peito de frango', location: 'Mercado 1' },
+                    { categoryId: 2, subcategoryId: 4, datetime: '2026-05-12T16:00:00.000Z', value: 46.50, description: 'Queijo', location: 'Mercado 1' },
                 ]
             }
         },
         {
             input: '[audio saying "acabei de ir ao dentista Dr. José fazer uma limpeza que custou 300"]',
-            output: { items: 
+            output: { items:
                 [
-                    { category: 'health', category_id: 3, subcategory: null, subcategory_id: null, datetime: '2026-06-12T16:00:00.000Z', value: '300', description: 'Limpeza nos dentes', location: 'Consultório Dr. José' },
+                    // e.g. category 3 = 'health'; subcategoryId omitted because no subcategory matches
+                    { categoryId: 3, datetime: '2026-06-12T16:00:00.000Z', value: 300, description: 'Limpeza nos dentes', location: 'Consultório Dr. José' },
                 ]
             }
         },
@@ -104,7 +113,7 @@ const getUserPromptTemplate = (question: string) => {
       'Carefully analyze the question to determine the user intent',
       'Extract all relevant transaction details',
       'Convert dates and times to ISO format',
-      'Match category names to their IDs',
+      'Match category and subcategory names to their IDs',
       'Return only the fields that are present in the question',
     ]
   });
