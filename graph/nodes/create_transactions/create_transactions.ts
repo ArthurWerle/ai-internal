@@ -1,6 +1,16 @@
 import { McpClientService } from "../../../services/mcp_client.ts";
 import { GraphState } from "../../receipt_scanner.ts";
 
+type CreatedEntry = {
+    id?: string | number;
+    amount: number;
+    type?: string;
+    description?: string;
+    date?: string;
+    location?: string;
+    error?: string;
+};
+
 export function createCreateTransactionsNode(mcpClient: McpClientService) {
     return async (state: GraphState): Promise<Partial<GraphState>> => {
         console.log(`💳 Creating ${state.items!.length} transaction(s) via MCP...`);
@@ -19,7 +29,7 @@ export function createCreateTransactionsNode(mcpClient: McpClientService) {
             )
         );
 
-        const createdTransactions = results.map((result, i) => {
+        const createdTransactions = results.map((result, i): CreatedEntry => {
             const item = state.items![i];
             if (result.status === 'fulfilled') {
                 // The API wraps the created transaction in an envelope:
@@ -45,8 +55,10 @@ export function createCreateTransactionsNode(mcpClient: McpClientService) {
             };
         });
 
-        const failed = createdTransactions.filter(t => 'error' in t);
-        console.log(`✅ Created ${createdTransactions.length - failed.length}/${state.items!.length} transaction(s)`);
+        const created = createdTransactions.filter(t => !t.error);
+        const failed = createdTransactions.filter(t => t.error);
+        console.log(`✅ Created ${created.length}/${state.items!.length} transaction(s):`,
+            created.map(t => `id=${t.id} "${t.description}" (${t.date})`).join(', '));
         if (failed.length > 0) {
             console.warn(`⚠️  ${failed.length} transaction(s) failed: ${failed.map(f => `"${f.description}"`).join(', ')}`);
         }

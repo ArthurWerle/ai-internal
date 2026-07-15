@@ -47,7 +47,13 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
     },
     extraction_instructions: {
         category: 'Match the category mentioned in the question to the ID from the categories list. Use fuzzy matching. Use the most likely one.',
-        datetime: 'Parse relative dates (today, tomorrow) and times. Convert to ISO format. Use current_date as reference.',
+        datetime: `
+            Parse relative dates (today, tomorrow) and times. Convert to ISO format. Use current_date as reference.
+            A receipt has exactly ONE purchase datetime: every item extracted from the same receipt MUST use
+            that exact same datetime. Never assign different dates to different items of one receipt.
+            If no date is visible on the receipt, use current_date for all items. Double-check the year —
+            it must never differ from the receipt (or from current_date when the receipt shows none).
+        `,
         values: 'Values are always in brazilian reais, R$.',
         location: `
             ALWAYS check existing_locations before outputting a location. Use fuzzy, case-insensitive
