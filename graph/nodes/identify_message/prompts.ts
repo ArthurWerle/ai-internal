@@ -48,7 +48,18 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
     extraction_instructions: {
         category: 'Match the category mentioned in the question to the ID from the categories list. Use fuzzy matching. Use the most likely one.',
         datetime: 'Parse relative dates (today, tomorrow) and times. Convert to ISO format. Use current_date as reference.',
-        values: 'Values are always in brazilian reais, R$.'
+        values: 'Values are always in brazilian reais, R$.',
+        location: `
+            ALWAYS check existing_locations before outputting a location. Use fuzzy, case-insensitive
+            matching: receipts print full legal/uppercase store names, so "SUPERMERCADO BROMBATTI"
+            refers to an existing location named "Brombatti", "MERCADO SAO LUIZ LTDA" refers to
+            "São Luiz", and so on. If any existing location plausibly refers to the same place,
+            output that existing location's name EXACTLY as it appears in existing_locations —
+            never output the raw name from the receipt in that case.
+            Only output a new location name when nothing in existing_locations matches, and prefer
+            a short, human-friendly name (e.g. "Brombatti") over the full legal name printed on the
+            receipt. All items extracted from the same receipt MUST use the exact same location string.
+        `,
     },
     examples: [
         {
