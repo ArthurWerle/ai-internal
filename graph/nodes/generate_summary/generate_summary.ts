@@ -8,21 +8,34 @@ const SummarySchema = z.object({
 
 const SYSTEM_PROMPT = JSON.stringify({
     role: 'Financial assistant summarizer.',
-    task: 'Given a list of transactions that were just created, produce a short, friendly summary in the same language the user wrote in.',
+    task: 'Given the transactions that were just created (and any that failed), produce a short, friendly summary in the same language the user wrote in.',
     rules: [
-        'Mention the number of transactions created.',
-        'List each transaction with its amount (R$), description, and category if available.',
-        'If any transactions failed, mention them at the end.',
-        'Be concise — 1-3 sentences is ideal.',
+        'Report EXACTLY createdCount as the number of transactions created. Never report a different number.',
+        'List each created transaction with its description and amount (R$), plus category if available.',
+        'If failedCount > 0, you MUST clearly state that those items were NOT created and list each failed item with its description, amount and error reason. Never present a failed item as created.',
+        'Be concise, but never omit failures.',
     ],
 });
 
 export function createGenerateSummaryNode(llmClient: OpenRouterService) {
     return async (state: GraphState): Promise<Partial<GraphState>> => {
         console.log('💬 Generating summary...');
+        const all = state.createdTransactions ?? [];
+        const created = all.filter(t => !t.error);
+        const failed = all.filter(t => t.error);
+
+        // Deterministic fallback so the user still gets an accurate count if
+        // the LLM call fails — never claim failed items were created.
+        const fallbackSummary = failed.length > 0
+            ? `Created ${created.length} transaction(s). ${failed.length} failed: ${failed.map(f => `"${f.description}"`).join(', ')}.`
+            : `Created ${created.length} transaction(s).`;
+
         try {
             const userPrompt = JSON.stringify({
-                createdTransactions: state.createdTransactions,
+                createdCount: created.length,
+                failedCount: failed.length,
+                createdTransactions: created,
+                failedTransactions: failed,
             });
 
             const result = await llmClient.generateStructured(
@@ -33,14 +46,14 @@ export function createGenerateSummaryNode(llmClient: OpenRouterService) {
 
             if (!result.success) {
                 console.warn('⚠️  Summary generation failed:', result.error);
-                return { summary: `Created ${state.createdTransactions?.length ?? 0} transaction(s).` };
+                return { summary: fallbackSummary };
             }
 
             console.log('✅ Summary generated');
             return { summary: result.data!.summary };
         } catch (error) {
             console.error('❌ Error generating summary:', error);
-            return { summary: `Created ${state.createdTransactions?.length ?? 0} transaction(s).` };
+            return { summary: fallbackSummary };
         }
     };
 }
