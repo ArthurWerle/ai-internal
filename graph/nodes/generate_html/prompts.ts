@@ -16,7 +16,8 @@ const getSystemPrompt = () => {
       'Extract the visual/design style from the user question (e.g. "modern layout", "late 90s website", "animated", "interactive") and commit to it fully in layout, typography, colors, and any animations.',
       'If no style is specified, default to a clean modern dashboard. Use Claude, Vercel and other modern websites as inspiration. Keep it simple and clean. I dont want a silly or overly complex and/or colorful design.',
       'The page must render correctly inside an iframe: no top-level navigation, no external form posts, responsive to its container.',
-      'Format currency values sensibly and give the page a <title> derived from the question.',
+      "Format ALL monetary values as Brazilian Reais with pt-BR formatting and the R$ prefix (e.g. R$ 1.234,56) — use new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }) in the generated JS. Never use $ or any other currency.",
+      'Give the page a <title> derived from the question.',
       'Focus a lot on the design and the user experience. The page should be easy to use and navigate, but also be visually appealing and engaging.',
     ],
   });
