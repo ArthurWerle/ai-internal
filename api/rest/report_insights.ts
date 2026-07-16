@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod/v3";
+import { formatBRL } from "../../lib/currency.ts";
 
 export const ReportInsightsSchema = z.object({
   headline: z
@@ -65,13 +66,13 @@ function fmtSide(label: string, side?: OverviewSide): string {
     side.percentageVariation === null || side.percentageVariation === undefined
       ? "n/a"
       : `${side.percentageVariation.toFixed(1)}%`;
-  return `${label}: ${current} this month vs ${last} last month (${pct} month-over-month)`;
+  return `${label}: ${formatBRL(current)} this month vs ${formatBRL(last)} last month (${pct} month-over-month)`;
 }
 
 function fmtNamedTotals(rows?: NamedTotal[]): string {
   if (!rows || rows.length === 0) return "  (none)";
   return rows
-    .map((r) => `  - ${r.name ?? "(none)"}: ${r.total ?? 0}`)
+    .map((r) => `  - ${r.name ?? "(none)"}: ${formatBRL(r.total ?? 0)}`)
     .join("\n");
 }
 
@@ -102,7 +103,7 @@ function buildPrompt(body: ReportInsightsBody): string {
     lines.push(
       body.monthlyHistory
         .map(
-          (h) => `  - ${h.month ?? "?"}: income ${h.income ?? 0}, expense ${h.expense ?? 0}`,
+          (h) => `  - ${h.month ?? "?"}: income ${formatBRL(h.income ?? 0)}, expense ${formatBRL(h.expense ?? 0)}`,
         )
         .join("\n"),
     );
@@ -114,7 +115,7 @@ function buildPrompt(body: ReportInsightsBody): string {
       body.biggestTransactions
         .map(
           (b) =>
-            `  - ${b.description ?? "(no description)"}: ${b.amount ?? 0}${b.category ? ` [${b.category}]` : ""}`,
+            `  - ${b.description ?? "(no description)"}: ${formatBRL(b.amount ?? 0)}${b.category ? ` [${b.category}]` : ""}`,
         )
         .join("\n"),
     );
@@ -155,6 +156,7 @@ async function routes(fastify: FastifyInstance) {
     const system = [
       "You are a personal-finance analyst writing a monthly report for a 2-person household.",
       "Be concrete and specific. Cite numbers and percentages, but only from the data provided — never invent figures.",
+      "All monetary values in the data are already formatted as Brazilian Reais (R$, e.g. R$ 906,47); reproduce them verbatim and never reformat, convert, or restyle them. Percentages stay as percentages.",
       "Keep each highlight and concern to a single sentence.",
       `Write everything in this language: ${language}.`,
     ].join(" ");

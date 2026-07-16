@@ -1,24 +1,29 @@
-import { HumanMessage } from '@langchain/core/messages';
 import { OpenRouterService } from '../services/open_router.ts';
-import { McpClientService } from '../services/mcp_client.ts';
-import { getMcpLangChainTools } from '../services/mcp_tools.ts';
+import { McpClientService, type McpTransaction } from '../services/mcp_client.ts';
+import { formatBRL } from '../lib/currency.ts';
 
+// The insight text is short and the numbers are already computed in code, so
+// the model only has to CHOOSE the most meaningful finding and phrase it — it
+// must never do arithmetic. Delegating the math to the model is exactly what
+// caused wildly wrong figures (e.g. a ~7-month Travel total reported as "this
+// month"); see api/rest/report_insights.ts for the same compute-then-narrate
+// pattern.
 const SYSTEM_PROMPT = JSON.stringify({
-    role: "Sharp personal-finance analyst with direct access to the user's finance tools.",
-    task: 'Investigate the current month spendings by calling tools, then write ONE short insight for the app header.',
+    role: 'Sharp personal-finance analyst writing ONE insight for a slim app header.',
+    task: 'Pick the SINGLE most meaningful finding from the pre-computed figures in the user message and phrase it as one short insight. You only choose and phrase — every number is already computed for you.',
     method: [
-        "Today's date is {date} — compute relative ranges (this month, last month, last 6 months) from it.",
-        'Gather at least: the month overview (current vs last month), expenses by category for the current AND previous month, and monthly averages per category over the last 6 months. Look at the biggest transactions of the month if a category spike needs explaining.',
-        'Compare: current month vs same point of last month (the month is not over — never compare a partial month against a full one without saying so), category totals vs last month, and category totals vs their 6-month average.',
-        'Pick the SINGLE most meaningful finding: the biggest saving, the most unusual spike, or the overall pace of the month. Prefer specific categories over generic totals when the change is notable.',
+        'The figures are authoritative and already scoped to the correct periods. NEVER recompute, re-add, estimate, or invent any number.',
+        'All monetary values are pre-formatted as Brazilian Reais (R$) — reproduce them exactly as written, character for character (e.g. "R$ 906,47").',
+        'The current month is PARTIAL. Never present it as a full month, and when you compare it against a full month or the 6-month average, make the partial nature clear.',
+        'Prefer a specific category with a notable change (a spike or a saving) over a generic total. Use a biggest-transaction detail only to explain a spike.',
     ],
     output_rules: [
-        'Return ONLY the insight text — no preamble, no markdown, no quotes around it.',
+        'Return ONLY the insight text — no preamble, no markdown, no surrounding quotes.',
         '1-2 sentences, maximum ~45 words. It must fit in a slim app header.',
-        'Cite concrete percentages/numbers that came from tool results — never invent data.',
+        'Cite concrete R$ values and/or percentages taken verbatim from the figures.',
         'Be an analyst, not a reporter: say what changed, why it matters, and (when negative) a short nudge to pay attention.',
-        'Warm, direct tone. Examples of the expected style: "Good work! You reduced your grocery spending by 23% compared to last month!" / "Your car costs are 15% above their 6-month average. Did anything happen? Keep an eye on it."',
-        'Keep category names exactly as they appear in the data (do not translate them).',
+        'Warm, direct tone. Examples of the expected style: "Nice work — Groceries are down 23% vs last month, about R$ 420,00 saved." / "Heads up: Car costs are 15% above their 6-month average. Anything unusual? Keep an eye on it."',
+        'Keep category names exactly as they appear in the figures (do not translate them).',
         'Write in this language: {language}.',
     ],
 });
@@ -29,49 +34,277 @@ export type InsightsAgentResult = {
     error?: string;
 };
 
+const REPORTING_TIMEZONE = process.env.REPORTING_TIMEZONE ?? 'America/Sao_Paulo';
+const PAGE_SIZE = 1000;
+const MAX_CATEGORY_ROWS = 10;
+const BASELINE_MONTHS = 6;
+
+type YearMonth = { year: number; month: number };
+
+// Today's calendar date as seen in the reporting timezone, so month edges line
+// up with how the transactions service (and currentPeriodKey) bucket dates.
+function nowInReportingTz(date: Date): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: REPORTING_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    return { year: get('year'), month: get('month'), day: get('day') };
+}
+
+function monthKey({ year, month }: YearMonth): string {
+    return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function monthStart(ym: YearMonth): string {
+    return `${monthKey(ym)}-01`;
+}
+
+function monthEnd(ym: YearMonth): string {
+    // Day 0 of the next month is the last day of this month (month is 1-based).
+    const lastDay = new Date(Date.UTC(ym.year, ym.month, 0)).getUTCDate();
+    return `${monthKey(ym)}-${String(lastDay).padStart(2, '0')}`;
+}
+
+function addMonths(ym: YearMonth, delta: number): YearMonth {
+    const index = ym.year * 12 + (ym.month - 1) + delta;
+    return { year: Math.floor(index / 12), month: (index % 12) + 1 };
+}
+
+function expenseAmount(t: McpTransaction): number {
+    if (String(t.type) !== 'expense') return 0;
+    const n = Number(t.amount);
+    return Number.isFinite(n) ? Math.abs(n) : 0;
+}
+
+function categoryIdOf(t: McpTransaction): number | null {
+    const raw = (t as any).category_id ?? (t as any).categoryId ?? (t as any).category?.id;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+}
+
+function monthKeyOf(t: McpTransaction): string | null {
+    const raw = (t as any).date ?? (t as any).created_at;
+    return typeof raw === 'string' && raw.length >= 7 ? raw.slice(0, 7) : null;
+}
+
+function descriptionOf(t: McpTransaction): string {
+    const raw = (t as any).description;
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : '(no description)';
+}
+
+// Pulls every expense transaction matching the filter, paging through offsets
+// so a busy 6-month window is never silently truncated at the page limit.
+async function fetchAllExpenses(
+    mcpClient: McpClientService,
+    params: { current_month?: boolean; start_date?: string; end_date?: string },
+): Promise<McpTransaction[]> {
+    const all: McpTransaction[] = [];
+    let offset = 0;
+    for (;;) {
+        const page = await mcpClient.listTransactions({
+            ...params,
+            type: 'expense',
+            limit: PAGE_SIZE,
+            offset,
+        });
+        all.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+        if (offset > 100_000) break; // hard safety valve
+    }
+    return all;
+}
+
+function sumByCategory(transactions: McpTransaction[]): Map<number, number> {
+    const totals = new Map<number, number>();
+    for (const t of transactions) {
+        const amount = expenseAmount(t);
+        if (amount === 0) continue;
+        const cid = categoryIdOf(t);
+        if (cid == null) continue;
+        totals.set(cid, (totals.get(cid) ?? 0) + amount);
+    }
+    return totals;
+}
+
+// { monthKey -> { categoryId -> total } }
+function sumByMonthAndCategory(transactions: McpTransaction[]): Map<string, Map<number, number>> {
+    const byMonth = new Map<string, Map<number, number>>();
+    for (const t of transactions) {
+        const amount = expenseAmount(t);
+        if (amount === 0) continue;
+        const cid = categoryIdOf(t);
+        const mk = monthKeyOf(t);
+        if (cid == null || mk == null) continue;
+        const bucket = byMonth.get(mk) ?? new Map<number, number>();
+        bucket.set(cid, (bucket.get(cid) ?? 0) + amount);
+        byMonth.set(mk, bucket);
+    }
+    return byMonth;
+}
+
+function pctChange(current: number, base: number): string {
+    if (base <= 0) return current > 0 ? 'new (no baseline)' : 'no change';
+    const pct = Math.round(((current - base) / base) * 100);
+    return `${pct > 0 ? '+' : ''}${pct}%`;
+}
+
+type SpendingFacts = { text: string; hasData: boolean };
+
+async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promise<SpendingFacts> {
+    const today = nowInReportingTz(now);
+    const current: YearMonth = { year: today.year, month: today.month };
+    const previous = addMonths(current, -1);
+
+    // The 6 completed months before the current one form the baseline window.
+    const baselineKeys: string[] = [];
+    for (let i = BASELINE_MONTHS; i >= 1; i--) {
+        baselineKeys.push(monthKey(addMonths(current, -i)));
+    }
+    const historyStart = monthStart(addMonths(current, -BASELINE_MONTHS));
+    const historyEnd = monthEnd(previous);
+
+    const [currentTx, historyTx, categories] = await Promise.all([
+        fetchAllExpenses(mcpClient, { current_month: true }),
+        fetchAllExpenses(mcpClient, { start_date: historyStart, end_date: historyEnd }),
+        mcpClient.listCategories(),
+    ]);
+
+    const categoryName = new Map<number, string>();
+    for (const c of categories) categoryName.set(c.id, c.name);
+    const nameOf = (cid: number) => categoryName.get(cid) ?? `Category ${cid}`;
+
+    const currentByCat = sumByCategory(currentTx);
+    const historyByMonthCat = sumByMonthAndCategory(historyTx);
+    const lastMonthByCat = historyByMonthCat.get(monthKey(previous)) ?? new Map<number, number>();
+
+    // 6-month monthly average per category: total over the window / 6 (months
+    // with no spend count as zero, which is what a monthly average should do).
+    const baselineByCat = new Map<number, number>();
+    for (const key of baselineKeys) {
+        const bucket = historyByMonthCat.get(key);
+        if (!bucket) continue;
+        for (const [cid, total] of bucket) {
+            baselineByCat.set(cid, (baselineByCat.get(cid) ?? 0) + total);
+        }
+    }
+    for (const [cid, total] of baselineByCat) {
+        baselineByCat.set(cid, total / BASELINE_MONTHS);
+    }
+
+    const currentTotal = [...currentByCat.values()].reduce((a, b) => a + b, 0);
+    const lastMonthTotal = [...lastMonthByCat.values()].reduce((a, b) => a + b, 0);
+    const baselineTotal = baselineKeys.reduce((acc, key) => {
+        const bucket = historyByMonthCat.get(key);
+        if (!bucket) return acc;
+        return acc + [...bucket.values()].reduce((a, b) => a + b, 0);
+    }, 0) / BASELINE_MONTHS;
+
+    if (currentByCat.size === 0 && lastMonthByCat.size === 0 && baselineByCat.size === 0) {
+        return { text: '', hasData: false };
+    }
+
+    const catIds = new Set<number>([
+        ...currentByCat.keys(),
+        ...lastMonthByCat.keys(),
+        ...baselineByCat.keys(),
+    ]);
+    const rows = [...catIds]
+        .map((cid) => ({
+            name: nameOf(cid),
+            current: currentByCat.get(cid) ?? 0,
+            lastMonth: lastMonthByCat.get(cid) ?? 0,
+            baseline: baselineByCat.get(cid) ?? 0,
+        }))
+        // Rank by whichever of current/baseline is larger, so both spikes and
+        // stopped-spending categories can surface as the notable finding.
+        .sort((a, b) => Math.max(b.current, b.baseline) - Math.max(a.current, a.baseline))
+        .slice(0, MAX_CATEGORY_ROWS);
+
+    const biggest = [...currentTx]
+        .filter((t) => expenseAmount(t) > 0)
+        .sort((a, b) => expenseAmount(b) - expenseAmount(a))
+        .slice(0, 3);
+
+    const lines: string[] = [];
+    lines.push(
+        `Reporting period: ${monthKey(current)} — the CURRENT month, still PARTIAL (${today.day} day(s) elapsed).`,
+    );
+    lines.push('All amounts are in Brazilian Reais (R$) and already formatted. Reproduce them verbatim.');
+    lines.push('');
+    lines.push('OVERALL EXPENSES');
+    lines.push(`- This month so far: ${formatBRL(currentTotal)}`);
+    lines.push(`- Last full month (${monthKey(previous)}): ${formatBRL(lastMonthTotal)}`);
+    lines.push(`- 6-month monthly average: ${formatBRL(baselineTotal)}`);
+    lines.push('');
+    lines.push('BY CATEGORY (this month so far vs last full month vs 6-month monthly average)');
+    for (const r of rows) {
+        lines.push(
+            `- ${r.name}: this month ${formatBRL(r.current)}` +
+                ` | last month ${formatBRL(r.lastMonth)}` +
+                ` | 6-mo avg ${formatBRL(r.baseline)}` +
+                ` | vs 6-mo avg ${pctChange(r.current, r.baseline)}` +
+                ` | vs last month ${pctChange(r.current, r.lastMonth)}`,
+        );
+    }
+    if (biggest.length > 0) {
+        lines.push('');
+        lines.push('BIGGEST TRANSACTIONS THIS MONTH');
+        for (const t of biggest) {
+            const cid = categoryIdOf(t);
+            const cat = cid != null ? ` [${nameOf(cid)}]` : '';
+            lines.push(`- ${descriptionOf(t)}: ${formatBRL(expenseAmount(t))}${cat}`);
+        }
+    }
+
+    return { text: lines.join('\n'), hasData: true };
+}
+
 export async function runInsightsAgent(
     llmClient: OpenRouterService,
     mcpClient: McpClientService,
     options?: { language?: string; sessionId?: string },
 ): Promise<InsightsAgentResult> {
-    console.log('📊 Running spending insights agent...');
+    console.log('📊 Building spending insight from computed figures...');
 
-    let tools;
+    const language = options?.language ?? 'en';
+    const toolsUsed = ['list_transactions', 'list_categories'];
+
+    let facts: SpendingFacts;
     try {
-        tools = await getMcpLangChainTools(mcpClient);
+        facts = await buildSpendingFacts(mcpClient, new Date());
     } catch (error) {
-        console.error('❌ Failed to discover MCP tools:', error);
+        console.error('❌ Failed to gather spending data:', error);
         return {
             insight: '',
-            toolsUsed: [],
+            toolsUsed,
             error: error instanceof Error ? error.message : String(error),
         };
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    const language = options?.language ?? 'en';
+    if (!facts.hasData) {
+        console.warn('⚠️  No spending data available for the insight.');
+        return { insight: '', toolsUsed, error: 'no spending data available' };
+    }
 
-    const result = await llmClient.runAgent({
-        systemPrompt: SYSTEM_PROMPT.replace('{date}', today).replace('{language}', language),
-        messages: [
-            new HumanMessage(
-                `Analyze my spendings for the month of ${today.slice(0, 7)} and give me the single most valuable insight.`,
-            ),
-        ],
-        tools,
-        sessionId: options?.sessionId,
-        tags: ['insights-endpoint', 'agent'],
-    });
+    const result = await llmClient.generateText(
+        SYSTEM_PROMPT.replace('{language}', language),
+        facts.text,
+        { sessionId: options?.sessionId, tags: ['insights-endpoint', 'compute-then-phrase'] },
+    );
 
-    if (!result.success || !result.answer.trim()) {
-        console.warn('⚠️  Insights agent failed:', result.error);
+    if (!result.success || !result.data.trim()) {
+        console.warn('⚠️  Insight phrasing failed:', result.success ? 'empty response' : result.error);
         return {
             insight: '',
-            toolsUsed: result.toolsUsed,
-            error: result.error ?? 'agent returned an empty insight',
+            toolsUsed,
+            error: (result.success ? undefined : result.error) ?? 'insight generation returned empty text',
         };
     }
 
-    console.log(`✅ Insights agent done (tools used: ${result.toolsUsed.join(', ') || 'none'})`);
-    return { insight: result.answer.trim(), toolsUsed: result.toolsUsed };
+    console.log('✅ Insight ready.');
+    return { insight: result.data.trim(), toolsUsed };
 }
