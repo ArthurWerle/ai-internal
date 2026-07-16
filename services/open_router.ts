@@ -19,6 +19,20 @@ export type AgentRunResult = {
   error?: string;
 };
 
+// The last AI message should carry the answer, but flaky providers sometimes
+// append an empty final message after the real one — scan backwards for the
+// last AI message with actual text and no pending tool calls.
+function extractAnswer(messages: BaseMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!(message instanceof AIMessage)) continue;
+    if ((message.tool_calls?.length ?? 0) > 0) continue;
+    const text = extractText(message).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function extractText(message: BaseMessage | undefined): string {
   if (!message) return '';
   const content = message.content;
@@ -133,17 +147,54 @@ export class OpenRouterService {
       tools: options.tools,
     });
 
+    const invokeConfig = { callbacks: [langfuseHandler], recursionLimit: config.agentRecursionLimit };
+
     try {
       const result = await agent.invoke(
         { messages: [new SystemMessage(options.systemPrompt), ...options.messages] },
-        { callbacks: [langfuseHandler], recursionLimit: config.agentRecursionLimit },
+        invokeConfig,
       );
 
-      const finalAiMessage = [...result.messages].reverse().find((m) => m instanceof AIMessage);
-      const answer = extractText(finalAiMessage);
-      const toolsUsed = result.messages
+      let messages = result.messages;
+      let answer = extractAnswer(messages);
+
+      // Some providers (Gemini via OpenRouter in particular) intermittently
+      // end the tool loop with an empty message; nudge the model once to
+      // restate the answer — the tool results are already in its context.
+      if (!answer) {
+        const retry = await agent.invoke(
+          {
+            messages: [
+              ...messages,
+              new HumanMessage('Your previous reply was empty. Reply now with the final answer as plain text.'),
+            ],
+          },
+          invokeConfig,
+        );
+        messages = retry.messages;
+        answer = extractAnswer(messages);
+      }
+
+      const toolsUsed = messages
         .filter((m): m is AIMessage => m instanceof AIMessage && (m.tool_calls?.length ?? 0) > 0)
         .flatMap((m) => m.tool_calls!.map((c) => c.name));
+
+      if (!answer) {
+        const finalAiMessage = [...messages].reverse().find((m) => m instanceof AIMessage);
+        console.warn(
+          '⚠️  Agent finished without any text output. Final AI message:',
+          JSON.stringify({
+            content: finalAiMessage?.content,
+            response_metadata: finalAiMessage?.response_metadata,
+          }).substring(0, 1000),
+        );
+        return {
+          success: false,
+          error: 'empty_agent_response',
+          answer: '',
+          toolsUsed: [...new Set(toolsUsed)],
+        };
+      }
 
       return { success: true, answer, toolsUsed: [...new Set(toolsUsed)] };
     } catch (error) {
