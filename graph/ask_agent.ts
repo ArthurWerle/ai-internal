@@ -16,6 +16,7 @@ export const buildSystemPrompt = (date: string, categories: McpCategory[], subca
         'Only omit subcategory_id when no existing subcategory reasonably matches the item. NEVER create new subcategories yourself.',
         'If the categories or sub_categories lists above are empty, call list_categories and list_subcategories before creating any transaction.',
         'Only state numbers that came from tool results — never invent data.',
+        'Format every monetary value as Brazilian Reais with the R$ prefix and pt-BR formatting (e.g. R$ 906,47). Percentages and non-money numbers stay as they are.',
         'If a tool returns an error, adjust the arguments and retry once; if it still fails, tell the user plainly what went wrong without leaking internal error details.',
         'Final reply: short, friendly, same language as the user. 1-4 sentences unless listing data.',
     ],
