@@ -112,6 +112,11 @@ async function routes(fastify: FastifyInstance) {
         metadata: {
           intent: "agent",
           toolsUsed: result.toolsUsed,
+          // Persisted so a follow-up turn (e.g. answering "qual seria a
+          // location?") can update the exact transactions this turn created.
+          ...(result.createdTransactionIds.length > 0
+            ? { createdTransactionIds: result.createdTransactionIds }
+            : {}),
         },
       });
     }

@@ -1,6 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { config } from '../config/config.ts';
-import { AIMessage, SystemMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, SystemMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { z } from 'zod/v3';
 import { createAgent, providerStrategy } from 'langchain';
@@ -12,10 +12,18 @@ export type LLMResponse = {
   content: string;
 };
 
+export type AgentToolResult = {
+  name: string;
+  content: string;
+};
+
 export type AgentRunResult = {
   success: boolean;
   answer: string;
   toolsUsed: string[];
+  // Raw result of every tool call the agent made, in order, so callers can
+  // inspect what the tools actually returned (e.g. ids of created records).
+  toolResults: AgentToolResult[];
   error?: string;
 };
 
@@ -179,6 +187,10 @@ export class OpenRouterService {
         .filter((m): m is AIMessage => m instanceof AIMessage && (m.tool_calls?.length ?? 0) > 0)
         .flatMap((m) => m.tool_calls!.map((c) => c.name));
 
+      const toolResults = messages
+        .filter((m): m is ToolMessage => m instanceof ToolMessage)
+        .map((m) => ({ name: m.name ?? '', content: extractText(m) }));
+
       if (!answer) {
         const finalAiMessage = [...messages].reverse().find((m) => m instanceof AIMessage);
         console.warn(
@@ -193,10 +205,11 @@ export class OpenRouterService {
           error: 'empty_agent_response',
           answer: '',
           toolsUsed: [...new Set(toolsUsed)],
+          toolResults,
         };
       }
 
-      return { success: true, answer, toolsUsed: [...new Set(toolsUsed)] };
+      return { success: true, answer, toolsUsed: [...new Set(toolsUsed)], toolResults };
     } catch (error) {
       if (error instanceof GraphRecursionError) {
         return {
@@ -204,6 +217,7 @@ export class OpenRouterService {
           error: 'agent_recursion_limit',
           answer: 'Sorry, that question needed too many steps — try asking something more specific.',
           toolsUsed: [],
+          toolResults: [],
         };
       }
       return {
@@ -211,6 +225,7 @@ export class OpenRouterService {
         error: error instanceof Error ? error.message : String(error),
         answer: '',
         toolsUsed: [],
+        toolResults: [],
       };
     }
   }

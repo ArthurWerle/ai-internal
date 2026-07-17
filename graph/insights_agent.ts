@@ -167,8 +167,13 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
     const historyStart = monthStart(addMonths(current, -BASELINE_MONTHS));
     const historyEnd = monthEnd(previous);
 
+    // Fetch the current month with explicit start/end dates instead of the
+    // current_month flag: the backend silently ignored the flag as sent by the
+    // MCP tool, returning the ENTIRE history as "this month" (e.g. Moradia at
+    // R$ 115k / +2320%). Explicit date ranges are the same filter the ask
+    // agent uses, and those numbers are correct.
     const [currentTx, historyTx, categories] = await Promise.all([
-        fetchAllExpenses(mcpClient, { current_month: true }),
+        fetchAllExpenses(mcpClient, { start_date: monthStart(current), end_date: monthEnd(current) }),
         fetchAllExpenses(mcpClient, { start_date: historyStart, end_date: historyEnd }),
         mcpClient.listCategories(),
     ]);
