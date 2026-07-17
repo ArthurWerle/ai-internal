@@ -46,7 +46,14 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
         }
     },
     extraction_instructions: {
-        category: 'Match the category mentioned in the question to the ID from the categories list. Use fuzzy matching. Use the most likely one.',
+        category: `
+            Match the category mentioned in the question to the ID from the categories list. Use fuzzy
+            matching. Use the most likely one.
+            A receipt is categorized by the ESTABLISHMENT, not item by item: EVERY item extracted from
+            the same receipt MUST get the SAME categoryId. A supermarket receipt means every single
+            item — food, drinks, cleaning supplies, hygiene, everything — gets the "Grocery" category.
+            Item-level distinctions belong ONLY in the subcategory.
+        `,
         subcategory: `
             ALWAYS try to assign the best-matching subcategory from the sub_categories list to EVERY item,
             inferring it from the item description when it is not stated explicitly (it almost never is).
