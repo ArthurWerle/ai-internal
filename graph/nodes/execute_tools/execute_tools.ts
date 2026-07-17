@@ -26,7 +26,6 @@ async function dispatch(mcpClient: McpClientService, call: PlannedCall): Promise
             return mcpClient.listLocations();
         case 'list_transactions':
             return mcpClient.listTransactions({
-                current_month: call.current_month,
                 category: call.category,
                 query: call.query,
                 type: call.type,

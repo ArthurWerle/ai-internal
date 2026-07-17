@@ -22,7 +22,7 @@ const getSystemPrompt = () => {
       },
       list_transactions: {
         description: 'List/filter transactions. Use for open-ended browsing or filtering (by category, type, date range, free-text search).',
-        params: ['current_month', 'category', 'query', 'type', 'start_date', 'end_date', 'limit', 'offset'],
+        params: ['category', 'query', 'type', 'start_date', 'end_date', 'limit', 'offset'],
       },
       get_transaction: {
         description: 'Get a single transaction by its ID. Only use if the user references a specific transaction ID.',

@@ -8,7 +8,7 @@
   "main": "main.ts",
   "target": "es2017 ",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --import=tsx --test \"tests/**/*.test.ts\"",
     "dev": "node --env-file=stack.env --import=tsx main.ts",
     "db:push": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit push",
     "db:generate": "node --env-file=stack.env ./node_modules/.bin/drizzle-kit generate",
