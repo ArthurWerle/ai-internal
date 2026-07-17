@@ -2,6 +2,7 @@ import type { BaseMessage } from '@langchain/core/messages';
 import { OpenRouterService } from '../services/open_router.ts';
 import { McpClientService, type McpCategory, type McpSubcategory, type McpLocation } from '../services/mcp_client.ts';
 import { getMcpLangChainTools } from '../services/mcp_tools.ts';
+import { buildSumTransactionsTool } from '../services/local_tools.ts';
 
 export const buildSystemPrompt = (date: string, categories: McpCategory[], subcategories: McpSubcategory[], locations: McpLocation[]) => JSON.stringify({
     role: "Personal finance assistant with direct access to the user's finance tools.",
@@ -12,6 +13,9 @@ export const buildSystemPrompt = (date: string, categories: McpCategory[], subca
     rules: [
         'Resolve category/subcategory NAMES to numeric IDs using the categories/sub_categories lists above or the relevant list tools — never pass a name where an ID is expected. The location field on create_transaction/update_transaction is different: it takes the location NAME as free text, never an ID.',
         `Today's date is ${date} — compute relative ranges (this month, last month) from it.`,
+        'For ANY question about totals or amounts spent/earned — overall, per category, or per period — call sum_transactions. Its numbers are computed in code and are authoritative. NEVER sum list_transactions rows yourself, and never answer a total from listed rows.',
+        'Date filters are ALWAYS explicit start_date/end_date in YYYY-MM-DD: "this month" means day 01 through the last day of the current month. There is no current-month shortcut flag.',
+        'Values ending in _formatted in tool results are already formatted — reproduce them verbatim, character for character.',
         'If an image or audio attachment is present, extract the transaction details from it before creating anything.',
         'A receipt is categorized by the ESTABLISHMENT, not item by item: EVERY item extracted from one receipt gets the SAME category_id. A supermarket receipt means every single item — food, cleaning supplies, hygiene, everything — gets the "Grocery" category. Item-level distinctions belong ONLY in subcategory_id.',
         'Every transaction you create — from a receipt image, audio, or text — MUST include both category_id and the best-matching subcategory_id from the sub_categories list, for EVERY item. Never skip subcategory_id when a plausible match exists.',
@@ -62,7 +66,9 @@ export async function runAskAgent(
 
     let tools;
     try {
-        tools = await getMcpLangChainTools(mcpClient);
+        // sum_transactions is a local tool: totals are computed in code, never
+        // by the model.
+        tools = [...await getMcpLangChainTools(mcpClient), buildSumTransactionsTool(mcpClient)];
     } catch (error) {
         console.error('❌ Failed to discover MCP tools:', error);
         return {

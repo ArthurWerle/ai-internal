@@ -17,7 +17,6 @@ const ToolNameSchema = z.enum([
 
 export const PlannedCallSchema = z.object({
     tool: ToolNameSchema,
-    current_month: z.boolean().optional(),
     category: z.string().optional(),
     query: z.string().optional(),
     type: z.enum(['income', 'expense']).optional(),

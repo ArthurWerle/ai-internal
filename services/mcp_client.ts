@@ -26,8 +26,9 @@ export type McpCategoryFull = { id: number; name: string; description?: string; 
 
 export type McpTransaction = { id: number | string; amount: number; type: string } & Record<string, unknown>;
 
+// current_month is deliberately absent: the backend silently ignores that flag
+// and returns the entire history. Date filtering must use start_date/end_date.
 export type ListTransactionsParams = {
-  current_month?: boolean;
   category?: string;
   category_id?: number;
   query?: string;

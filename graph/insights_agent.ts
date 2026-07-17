@@ -1,6 +1,18 @@
 import { OpenRouterService } from '../services/open_router.ts';
 import { McpClientService, type McpTransaction } from '../services/mcp_client.ts';
 import { formatBRL } from '../lib/currency.ts';
+import {
+    type YearMonth,
+    addMonths,
+    categoryIdOf,
+    expenseAmount,
+    fetchAllTransactions,
+    monthEnd,
+    monthKey,
+    monthStart,
+    nowInReportingTz,
+    sumByCategory,
+} from '../lib/transactions.ts';
 
 // The insight text is short and the numbers are already computed in code, so
 // the model only has to CHOOSE the most meaningful finding and phrase it — it
@@ -34,56 +46,8 @@ export type InsightsAgentResult = {
     error?: string;
 };
 
-const REPORTING_TIMEZONE = process.env.REPORTING_TIMEZONE ?? 'America/Sao_Paulo';
-const PAGE_SIZE = 1000;
 const MAX_CATEGORY_ROWS = 10;
 const BASELINE_MONTHS = 6;
-
-type YearMonth = { year: number; month: number };
-
-// Today's calendar date as seen in the reporting timezone, so month edges line
-// up with how the transactions service (and currentPeriodKey) bucket dates.
-function nowInReportingTz(date: Date): { year: number; month: number; day: number } {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: REPORTING_TIMEZONE,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).formatToParts(date);
-    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-    return { year: get('year'), month: get('month'), day: get('day') };
-}
-
-function monthKey({ year, month }: YearMonth): string {
-    return `${year}-${String(month).padStart(2, '0')}`;
-}
-
-function monthStart(ym: YearMonth): string {
-    return `${monthKey(ym)}-01`;
-}
-
-function monthEnd(ym: YearMonth): string {
-    // Day 0 of the next month is the last day of this month (month is 1-based).
-    const lastDay = new Date(Date.UTC(ym.year, ym.month, 0)).getUTCDate();
-    return `${monthKey(ym)}-${String(lastDay).padStart(2, '0')}`;
-}
-
-function addMonths(ym: YearMonth, delta: number): YearMonth {
-    const index = ym.year * 12 + (ym.month - 1) + delta;
-    return { year: Math.floor(index / 12), month: (index % 12) + 1 };
-}
-
-function expenseAmount(t: McpTransaction): number {
-    if (String(t.type) !== 'expense') return 0;
-    const n = Number(t.amount);
-    return Number.isFinite(n) ? Math.abs(n) : 0;
-}
-
-function categoryIdOf(t: McpTransaction): number | null {
-    const raw = (t as any).category_id ?? (t as any).categoryId ?? (t as any).category?.id;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-}
 
 function monthKeyOf(t: McpTransaction): string | null {
     const raw = (t as any).date ?? (t as any).created_at;
@@ -93,41 +57,6 @@ function monthKeyOf(t: McpTransaction): string | null {
 function descriptionOf(t: McpTransaction): string {
     const raw = (t as any).description;
     return typeof raw === 'string' && raw.trim() ? raw.trim() : '(no description)';
-}
-
-// Pulls every expense transaction matching the filter, paging through offsets
-// so a busy 6-month window is never silently truncated at the page limit.
-async function fetchAllExpenses(
-    mcpClient: McpClientService,
-    params: { current_month?: boolean; start_date?: string; end_date?: string },
-): Promise<McpTransaction[]> {
-    const all: McpTransaction[] = [];
-    let offset = 0;
-    for (;;) {
-        const page = await mcpClient.listTransactions({
-            ...params,
-            type: 'expense',
-            limit: PAGE_SIZE,
-            offset,
-        });
-        all.push(...page);
-        if (page.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-        if (offset > 100_000) break; // hard safety valve
-    }
-    return all;
-}
-
-function sumByCategory(transactions: McpTransaction[]): Map<number, number> {
-    const totals = new Map<number, number>();
-    for (const t of transactions) {
-        const amount = expenseAmount(t);
-        if (amount === 0) continue;
-        const cid = categoryIdOf(t);
-        if (cid == null) continue;
-        totals.set(cid, (totals.get(cid) ?? 0) + amount);
-    }
-    return totals;
 }
 
 // { monthKey -> { categoryId -> total } }
@@ -167,14 +96,12 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
     const historyStart = monthStart(addMonths(current, -BASELINE_MONTHS));
     const historyEnd = monthEnd(previous);
 
-    // Fetch the current month with explicit start/end dates instead of the
-    // current_month flag: the backend silently ignored the flag as sent by the
-    // MCP tool, returning the ENTIRE history as "this month" (e.g. Moradia at
-    // R$ 115k / +2320%). Explicit date ranges are the same filter the ask
-    // agent uses, and those numbers are correct.
+    // Fetch with explicit start/end dates — never the current_month flag: the
+    // backend silently ignored it, returning the ENTIRE history as "this
+    // month" (e.g. Moradia at R$ 115k / +2320%).
     const [currentTx, historyTx, categories] = await Promise.all([
-        fetchAllExpenses(mcpClient, { start_date: monthStart(current), end_date: monthEnd(current) }),
-        fetchAllExpenses(mcpClient, { start_date: historyStart, end_date: historyEnd }),
+        fetchAllTransactions(mcpClient, { type: 'expense', start_date: monthStart(current), end_date: monthEnd(current) }),
+        fetchAllTransactions(mcpClient, { type: 'expense', start_date: historyStart, end_date: historyEnd }),
         mcpClient.listCategories(),
     ]);
 
