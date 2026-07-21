@@ -51,7 +51,21 @@ async function registerRoutes() {
   await fastify.register(insights);
 }
 
+// Fail fast with a clear message when a required env var is missing, instead of
+// letting the OpenRouterService constructor throw an opaque LangChain "API key
+// not found" error inside addDecorators() — which otherwise surfaces only as a
+// generic boot crash / restart loop and a "connection refused" for callers.
+function assertRequiredEnv() {
+  const required = ["OPENROUTER_API_KEY"];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`Missing required env var(s): ${missing.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 async function start() {
+  assertRequiredEnv();
   addDecorators();
   await registerRoutes();
 
