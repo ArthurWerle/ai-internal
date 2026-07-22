@@ -95,6 +95,8 @@ export class OpenRouterService {
       tags?: string[];
       metadata?: Record<string, unknown>;
       history?: BaseMessage[];
+      model?: string;
+      temperature?: number;
     }
   ) {
     try {
@@ -104,8 +106,15 @@ export class OpenRouterService {
         tags: options?.tags ?? ['openrouter', 'structured-output'],
       });
 
+      // Callers that need a different model/temperature than the shared cheap
+      // client (e.g. receipt classification) get a dedicated client; everyone
+      // else keeps the default llmClient untouched.
+      const client = options?.model
+        ? this.buildClient([options.model], { temperature: options?.temperature })
+        : this.llmClient;
+
       const agent = createAgent({
-        model: this.llmClient,
+        model: client,
         tools: [],
         responseFormat: providerStrategy(schema),
       })

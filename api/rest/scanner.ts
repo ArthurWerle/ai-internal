@@ -52,6 +52,18 @@ async function routes(fastify: FastifyInstance) {
             return { success: false, error: result.error };
         }
 
+        // The classifier was unsure what the purchase is (e.g. it could not tell
+        // whether this is a supermarket receipt). Nothing was created — return
+        // the question so the caller can ask the user and re-scan with an answer.
+        if (result.needsClarification) {
+            return {
+                success: true,
+                needsClarification: true,
+                question: result.clarificationQuestion,
+                items: result.items,
+            };
+        }
+
         return {
             success: true,
             summary: result.summary,

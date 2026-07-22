@@ -47,12 +47,18 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
     },
     extraction_instructions: {
         category: `
-            Match the category mentioned in the question to the ID from the categories list. Use fuzzy
-            matching. Use the most likely one.
-            A receipt is categorized by the ESTABLISHMENT, not item by item: EVERY item extracted from
-            the same receipt MUST get the SAME categoryId. A supermarket receipt means every single
-            item — food, drinks, cleaning supplies, hygiene, everything — gets the "Grocery" category.
-            Item-level distinctions belong ONLY in the subcategory.
+            The category is HIGH-LEVEL and is defined by the ESTABLISHMENT, never item by item:
+            EVERY item extracted from the same receipt MUST get the SAME categoryId.
+            DEFAULT ASSUMPTION: an image / nota fiscal is a SUPERMARKET purchase unless there is CLEAR
+            evidence it is another kind of establishment (a restaurant, a standalone bakery, a pharmacy,
+            a gas station, etc.). When it is a supermarket, EVERY single item — food, drinks, cleaning
+            supplies, hygiene, snacks, everything — gets the "Grocery" category.
+            A prepared / ready-to-eat item bought AT a supermarket (a coxinha, a bolo, pão, a salgado)
+            is STILL "Grocery", NEVER "Food", because it was bought at the supermarket. The item's nature
+            (food vs. drink vs. cleaning vs. hygiene) changes ONLY the subcategory, never the category.
+            "Food" is ONLY for meals / prepared food when the establishment is NOT a supermarket:
+            delivery, restaurants, a snack at a bar, a pastel at the street fair, a churro at the park.
+            Match the chosen category NAME to its ID from the categories list using fuzzy matching.
         `,
         subcategory: `
             ALWAYS try to assign the best-matching subcategory from the sub_categories list to EVERY item,
@@ -68,6 +74,13 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
             it must never differ from the receipt (or from current_date when the receipt shows none).
         `,
         values: 'Values are always in brazilian reais, R$.',
+        clarification: `
+            Almost every image is a supermarket nota fiscal — assume supermarket and DO NOT ask in the
+            normal case. Set needsClarification=true (and write clarificationQuestion in Brazilian
+            Portuguese) ONLY when you genuinely cannot tell whether the purchase is from a supermarket
+            or which establishment it came from, so picking the category would be a pure guess. When you
+            ask, NO transaction is created until the user answers, so only ask when truly necessary.
+        `,
         location: `
             ALWAYS check existing_locations before outputting a location. Use fuzzy, case-insensitive
             matching: receipts print full legal/uppercase store names, so "SUPERMERCADO BROMBATTI"
@@ -82,20 +95,24 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
     },
     examples: [
         {
-            input: 'Comprei um bolo por 20',
+            // Text, clearly NOT a supermarket (street fair) → prepared food eaten out = 'food'.
+            input: 'Comprei um pastel na feira por 10',
             output: { items: [
                 // e.g. category 1 = 'food', subcategory 1 = 'Doces e snacks'
-                { categoryId: 1, subcategoryId: 1, datetime: '2026-02-12T16:00:00.000Z', value: 20, description: 'Bolo' }
+                { categoryId: 1, subcategoryId: 1, datetime: '2026-02-12T16:00:00.000Z', value: 10, description: 'Pastel', location: 'Feira' }
             ]}
         },
         {
-            input: '[image showing a receipt of a purchase of 3 different items]',
+            // SUPERMARKET nota fiscal that includes a food/snack item (a coxinha): EVERY item is
+            // 'grocery', including the coxinha, BECAUSE it was bought at the supermarket. Only the
+            // subcategory reflects what each item is — the category never changes item by item.
+            input: '[image of a supermarket nota fiscal with a coxinha, a detergent and a soda]',
             output: { items:
                 [
-                    // e.g. category 2 = 'grocery'; subcategories 2/3/4 = 'Bebidas'/'Proteínas'/'Laticínios'
-                    { categoryId: 2, subcategoryId: 2, datetime: '2026-05-12T16:00:00.000Z', value: 19.90, description: 'Café', location: 'Mercado 1' },
-                    { categoryId: 2, subcategoryId: 3, datetime: '2026-05-12T16:00:00.000Z', value: 52, description: 'Peito de frango', location: 'Mercado 1' },
-                    { categoryId: 2, subcategoryId: 4, datetime: '2026-05-12T16:00:00.000Z', value: 46.50, description: 'Queijo', location: 'Mercado 1' },
+                    // e.g. category 2 = 'grocery'; subcategories 5/6/2 = 'Doces e snacks'/'Limpeza'/'Bebidas'
+                    { categoryId: 2, subcategoryId: 5, datetime: '2026-05-12T16:00:00.000Z', value: 8.90, description: 'Coxinha', location: 'Mercado 1' },
+                    { categoryId: 2, subcategoryId: 6, datetime: '2026-05-12T16:00:00.000Z', value: 12.50, description: 'Detergente', location: 'Mercado 1' },
+                    { categoryId: 2, subcategoryId: 2, datetime: '2026-05-12T16:00:00.000Z', value: 7.00, description: 'Refrigerante', location: 'Mercado 1' },
                 ]
             }
         },
@@ -106,6 +123,15 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
                     // e.g. category 3 = 'health'; subcategoryId omitted because no subcategory matches
                     { categoryId: 3, datetime: '2026-06-12T16:00:00.000Z', value: 300, description: 'Limpeza nos dentes', location: 'Consultório Dr. José' },
                 ]
+            }
+        },
+        {
+            // Genuinely ambiguous image → ask instead of guessing. No transaction is created.
+            input: '[a blurry photo where it is unclear whether it is a supermarket nota fiscal or a restaurant bill]',
+            output: {
+                items: [],
+                needsClarification: true,
+                clarificationQuestion: 'Não consegui identificar se essa compra foi no supermercado ou em outro lugar. Onde foi?'
             }
         },
     ]
