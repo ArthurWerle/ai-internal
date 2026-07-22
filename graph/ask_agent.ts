@@ -3,6 +3,7 @@ import { OpenRouterService } from '../services/open_router.ts';
 import { McpClientService, type McpCategory, type McpSubcategory, type McpLocation } from '../services/mcp_client.ts';
 import { getMcpLangChainTools } from '../services/mcp_tools.ts';
 import { buildSumTransactionsTool } from '../services/local_tools.ts';
+import { CATEGORY_RULE, SUBCATEGORY_RULE, LOCATION_RULE } from './shared/classification_rules.ts';
 
 export const buildSystemPrompt = (date: string, categories: McpCategory[], subcategories: McpSubcategory[], locations: McpLocation[]) => JSON.stringify({
     role: "Personal finance assistant with direct access to the user's finance tools.",
@@ -17,10 +18,9 @@ export const buildSystemPrompt = (date: string, categories: McpCategory[], subca
         'Date filters are ALWAYS explicit start_date/end_date in YYYY-MM-DD: "this month" means day 01 through the last day of the current month. There is no current-month shortcut flag.',
         'Values ending in _formatted in tool results are already formatted — reproduce them verbatim, character for character.',
         'If an image or audio attachment is present, extract the transaction details from it before creating anything.',
-        'A receipt is categorized by the ESTABLISHMENT, not item by item: EVERY item extracted from one receipt gets the SAME category_id. Assume a nota fiscal is a supermarket purchase unless there is clear evidence otherwise; then every single item — food, drinks, cleaning supplies, hygiene, snacks, everything — gets the "Grocery" category. A prepared/ready-to-eat item bought AT a supermarket (a coxinha, a bolo, pão) is STILL "Grocery", NEVER "Food", because it was bought there — its nature only changes subcategory_id. "Food" is only for meals/prepared food when the establishment is NOT a supermarket (delivery, restaurant, bar, street fair). Item-level distinctions belong ONLY in subcategory_id.',
-        'Every transaction you create — from a receipt image, audio, or text — MUST include both category_id and the best-matching subcategory_id from the sub_categories list, for EVERY item. Never skip subcategory_id when a plausible match exists.',
-        'Only omit subcategory_id when no existing subcategory reasonably matches the item. NEVER create new subcategories yourself.',
-        'Every transaction created from a receipt MUST include a location: the store/merchant name printed at the TOP of the receipt. First fuzzy-match it (case-insensitive) against the locations list above — receipts print full legal names, so "SUPERMERCADO BROMBATTI LTDA" refers to an existing location named "Brombatti". If an existing location plausibly refers to the same place, pass its name EXACTLY as it appears in the list. Only when nothing matches, pass a short human-friendly name (e.g. "Brombatti", not the full legal name) — it is created automatically. All items from the same receipt use the exact same location.',
+        `${CATEGORY_RULE} Here the category is category_id; item-level distinctions belong ONLY in subcategory_id.`,
+        `${SUBCATEGORY_RULE} This is the subcategory_id field. Every transaction you create — from a receipt image, audio, or text — MUST include category_id for EVERY item, plus subcategory_id whenever a plausible match exists.`,
+        `${LOCATION_RULE} On create_transaction/update_transaction the location is this store name passed as free text (never an ID).`,
         'If you create transactions but CANNOT infer the location, still create them (without location), and end your reply with exactly this question: "Não consegui identificar a location, qual seria?"',
         'If your previous message asked "Não consegui identificar a location, qual seria?" and the user replied with a location name: fuzzy-match that name against the locations list (or list_locations), reuse the existing name if one matches, and call update_transaction with that location (as text) for EVERY transaction id listed in the [internal note] of your previous message. Then confirm briefly.',
         'If the categories or sub_categories lists above are empty, call list_categories and list_subcategories before creating any transaction.',
