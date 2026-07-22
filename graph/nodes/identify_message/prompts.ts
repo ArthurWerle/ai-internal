@@ -1,3 +1,5 @@
+import { CATEGORY_RULE, SUBCATEGORY_RULE, LOCATION_RULE } from '../../shared/classification_rules.ts';
+
 export const getSystemPrompt = (categories: any[], sub_categories: any[], locations: any[]) => {
   return JSON.stringify({
     role: 'Message Classifier for a Personal Financies App.',
@@ -46,26 +48,8 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
         }
     },
     extraction_instructions: {
-        category: `
-            The category is HIGH-LEVEL and is defined by the ESTABLISHMENT, never item by item:
-            EVERY item extracted from the same receipt MUST get the SAME categoryId.
-            DEFAULT ASSUMPTION: an image / nota fiscal is a SUPERMARKET purchase unless there is CLEAR
-            evidence it is another kind of establishment (a restaurant, a standalone bakery, a pharmacy,
-            a gas station, etc.). When it is a supermarket, EVERY single item — food, drinks, cleaning
-            supplies, hygiene, snacks, everything — gets the "Grocery" category.
-            A prepared / ready-to-eat item bought AT a supermarket (a coxinha, a bolo, pão, a salgado)
-            is STILL "Grocery", NEVER "Food", because it was bought at the supermarket. The item's nature
-            (food vs. drink vs. cleaning vs. hygiene) changes ONLY the subcategory, never the category.
-            "Food" is ONLY for meals / prepared food when the establishment is NOT a supermarket:
-            delivery, restaurants, a snack at a bar, a pastel at the street fair, a churro at the park.
-            Match the chosen category NAME to its ID from the categories list using fuzzy matching.
-        `,
-        subcategory: `
-            ALWAYS try to assign the best-matching subcategory from the sub_categories list to EVERY item,
-            inferring it from the item description when it is not stated explicitly (it almost never is).
-            Use fuzzy matching. Only omit subcategoryId when no existing subcategory reasonably matches —
-            never invent a subcategory ID that is not in the list.
-        `,
+        category: `${CATEGORY_RULE}\nMatch the chosen category NAME to its ID (categoryId) from the categories list using fuzzy matching.`,
+        subcategory: `${SUBCATEGORY_RULE}\nOutput the chosen subcategory as subcategoryId.`,
         datetime: `
             Parse relative dates (today, tomorrow) and times. Convert to ISO format. Use current_date as reference.
             A receipt has exactly ONE purchase datetime: every item extracted from the same receipt MUST use
@@ -81,17 +65,7 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
             or which establishment it came from, so picking the category would be a pure guess. When you
             ask, NO transaction is created until the user answers, so only ask when truly necessary.
         `,
-        location: `
-            ALWAYS check existing_locations before outputting a location. Use fuzzy, case-insensitive
-            matching: receipts print full legal/uppercase store names, so "SUPERMERCADO BROMBATTI"
-            refers to an existing location named "Brombatti", "MERCADO SAO LUIZ LTDA" refers to
-            "São Luiz", and so on. If any existing location plausibly refers to the same place,
-            output that existing location's name EXACTLY as it appears in existing_locations —
-            never output the raw name from the receipt in that case.
-            Only output a new location name when nothing in existing_locations matches, and prefer
-            a short, human-friendly name (e.g. "Brombatti") over the full legal name printed on the
-            receipt. All items extracted from the same receipt MUST use the exact same location string.
-        `,
+        location: LOCATION_RULE,
     },
     examples: [
         {
