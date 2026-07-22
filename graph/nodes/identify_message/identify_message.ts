@@ -1,5 +1,6 @@
 import z from "zod/v3";
 import { OpenRouterService } from "../../../services/open_router.ts";
+import { config } from "../../../config/config.ts";
 import { GraphState } from "../../receipt_scanner.ts";
 import { PROMPTS } from './prompts.ts';
 
@@ -15,6 +16,8 @@ const ExtractedItemSchema = z.object({
 
 const ResponseSchema = z.object({
     items: z.array(ExtractedItemSchema),
+    needsClarification: z.boolean().optional().describe('Set true ONLY when you genuinely cannot tell whether this is a supermarket purchase or which establishment it came from. In the normal case (a receipt) assume supermarket and leave this false — do NOT ask.'),
+    clarificationQuestion: z.string().optional().describe('A short question in Brazilian Portuguese (pt-BR) to ask the user. Required when needsClarification is true; omit otherwise.'),
 });
 
 export function createIdentifyMessageNode(llmClient: OpenRouterService) {
@@ -37,11 +40,21 @@ export function createIdentifyMessageNode(llmClient: OpenRouterService) {
                 systemPrompt,
                 lastMessage,
                 ResponseSchema,
+                { model: config.scanModel, temperature: config.scanTemperature },
             );
 
             if (!result.success) {
                 console.warn('⚠️  Identify message failed:', result.error);
                 return { error: result.error };
+            }
+
+            if (result.data!.needsClarification) {
+                console.log('❓ Clarification needed:', result.data!.clarificationQuestion);
+                return {
+                    items: result.data!.items,
+                    needsClarification: true,
+                    clarificationQuestion: result.data!.clarificationQuestion,
+                };
             }
 
             console.log(`✅ Extracted ${result.data!.items.length} item(s)`);

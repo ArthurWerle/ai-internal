@@ -65,6 +65,12 @@ const ReceiptScannerAnnotation = z.object({
 
   summary: z.string().optional(),
 
+  // Set when the classifier cannot confidently tell what the purchase is (e.g.
+  // unsure whether the image is a supermarket receipt). The graph then stops
+  // before creating any transaction and the endpoint returns the question.
+  needsClarification: z.boolean().optional(),
+  clarificationQuestion: z.string().optional(),
+
   error: z.string().optional(),
 });
 
@@ -82,7 +88,12 @@ export function buildReceiptScannerGraph(llmClient: OpenRouterService, mcpClient
 
         .addEdge(START, 'fetchContext')
         .addEdge('fetchContext', 'identifyMessage')
-        .addEdge('identifyMessage', 'validateInput')
+        // If identification failed, or the classifier is unsure what the
+        // purchase is, stop before validating/creating anything — the endpoint
+        // surfaces the error or the clarification question to the caller.
+        .addConditionalEdges('identifyMessage', (state: GraphState) =>
+            state.error || state.needsClarification ? END : 'validateInput'
+        )
         .addConditionalEdges('validateInput', (state: GraphState) =>
             state.error ? END : 'createTransactions'
         )
