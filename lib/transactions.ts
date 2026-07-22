@@ -60,6 +60,26 @@ export function categoryIdOf(t: McpTransaction): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+export function subcategoryIdOf(t: McpTransaction): number | null {
+    const raw = (t as any).subcategory_id ?? (t as any).subcategoryId ?? (t as any).subcategory?.id;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+}
+
+// Raw description text (empty string when absent) — used for text-substring
+// filters like summing only rows whose description mentions "gasolina".
+export function descriptionOf(t: McpTransaction): string {
+    const raw = (t as any).description;
+    return typeof raw === 'string' ? raw : '';
+}
+
+// Month bucket ("YYYY-MM") a transaction belongs to, from its date. Matches how
+// the transactions service buckets months for reporting.
+export function monthKeyOf(t: McpTransaction): string | null {
+    const raw = (t as any).date ?? (t as any).created_at;
+    return typeof raw === 'string' && raw.length >= 7 ? raw.slice(0, 7) : null;
+}
+
 // Pulls every transaction matching the filter, paging through offsets so a
 // busy window is never silently truncated at the page limit. Date filtering is
 // ALWAYS by explicit start_date/end_date — the backend's current_month flag is

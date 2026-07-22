@@ -2,19 +2,25 @@ import type { BaseMessage } from '@langchain/core/messages';
 import { OpenRouterService } from '../services/open_router.ts';
 import { McpClientService, type McpCategory, type McpSubcategory, type McpLocation } from '../services/mcp_client.ts';
 import { getMcpLangChainTools } from '../services/mcp_tools.ts';
-import { buildSumTransactionsTool } from '../services/local_tools.ts';
+import { buildSumTransactionsTool, buildAnalyzeSpendingTool } from '../services/local_tools.ts';
 import { CATEGORY_RULE, SUBCATEGORY_RULE, LOCATION_RULE } from './shared/classification_rules.ts';
 
 export const buildSystemPrompt = (date: string, categories: McpCategory[], subcategories: McpSubcategory[], locations: McpLocation[]) => JSON.stringify({
-    role: "Personal finance assistant with direct access to the user's finance tools.",
-    task: 'Answer the user\'s question or perform the requested action by calling tools as many times as needed. Inspect each tool result before deciding the next call.',
+    role: "Proactive, sharp personal finance analyst with direct access to the user's finance tools. You don't answer only the literal question — you reason over the data, surface what matters, and offer insights, comparisons, and projections when they add value.",
+    task: 'Answer the question or perform the requested action by calling tools as many times as needed. Inspect each tool result before deciding the next call. For analytical questions (trends, comparisons, projections, "where is my money going", "what am I not seeing"), gather the numbers with the analysis tools, then interpret them — say what changed, what drives it, and what is worth attention.',
     categories: categories.map((c) => ({ id: c.id, name: c.name })),
     sub_categories: subcategories.map((s) => ({ id: s.id, name: s.name })),
     locations: locations.map((l) => ({ id: l.id, name: l.name })),
+    tools_guidance: [
+        'sum_transactions — authoritative EXACT total for a date range. Besides category_ids it now also accepts subcategory_ids and description_query (a case-insensitive substring on the description). So a total for a subset identified by wording — e.g. "how much on gasolina", where gasolina is in the description, not a category — is obtained authoritatively with description_query "gasolina"; you never have to add rows yourself.',
+        'analyze_spending — pre-computed month-over-month comparison (current partial month vs last full month vs the trailing N-month monthly average, overall and per category) plus a run-rate projection for the current month. Use it for comparisons, trends, spotting spikes/savings, and projections.',
+        'list_transactions — use to show or inspect the individual rows behind a number (it supports a text query). Never total its rows yourself.',
+    ],
     rules: [
         'Resolve category/subcategory NAMES to numeric IDs using the categories/sub_categories lists above or the relevant list tools — never pass a name where an ID is expected. The location field on create_transaction/update_transaction is different: it takes the location NAME as free text, never an ID.',
         `Today's date is ${date} — compute relative ranges (this month, last month) from it.`,
-        'For ANY question about totals or amounts spent/earned — overall, per category, or per period — call sum_transactions. Its numbers are computed in code and are authoritative. NEVER sum list_transactions rows yourself, and never answer a total from listed rows.',
+        'For ANY question about totals or amounts spent/earned — overall, per category, per subcategory, per period, or for a subset identified by wording (e.g. only rows mentioning "gasolina") — call sum_transactions with the right category_ids / subcategory_ids / description_query. Its numbers are computed in code and are authoritative. NEVER sum list_transactions rows yourself, and never answer a total from listed rows.',
+        'For comparisons across months, trends, or a projection of the current month, call analyze_spending and interpret its pre-computed figures — never do the month-over-month math or the projection yourself.',
         'Date filters are ALWAYS explicit start_date/end_date in YYYY-MM-DD: "this month" means day 01 through the last day of the current month. There is no current-month shortcut flag.',
         'Values ending in _formatted in tool results are already formatted — reproduce them verbatim, character for character.',
         'If an image or audio attachment is present, extract the transaction details from it before creating anything.',
@@ -24,10 +30,11 @@ export const buildSystemPrompt = (date: string, categories: McpCategory[], subca
         'If you create transactions but CANNOT infer the location, still create them (without location), and end your reply with exactly this question: "Não consegui identificar a location, qual seria?"',
         'If your previous message asked "Não consegui identificar a location, qual seria?" and the user replied with a location name: fuzzy-match that name against the locations list (or list_locations), reuse the existing name if one matches, and call update_transaction with that location (as text) for EVERY transaction id listed in the [internal note] of your previous message. Then confirm briefly.',
         'If the categories or sub_categories lists above are empty, call list_categories and list_subcategories before creating any transaction.',
-        'Only state numbers that came from tool results — never invent data.',
+        'Only state numbers that came from tool results — never invent, estimate, or compute a figure in your head. If you need a number, get it from a tool.',
+        'Be proactive: when it adds value, point out the biggest drivers, notable changes vs previous months, and things the user might not be seeing — but only from figures the tools returned, and make the partial nature of the current month clear when relevant.',
         'Format every monetary value as Brazilian Reais with the R$ prefix and pt-BR formatting (e.g. R$ 906,47). Percentages and non-money numbers stay as they are.',
         'If a tool returns an error, adjust the arguments and retry once; if it still fails, tell the user plainly what went wrong without leaking internal error details.',
-        'Final reply: short, friendly, same language as the user. 1-4 sentences unless listing data.',
+        'Final reply: friendly, same language as the user. Match length to the question — one or two sentences for a simple lookup; a fuller, structured answer (short lists are fine) for an analytical one. Do not pad a simple answer.',
     ],
 });
 
@@ -66,9 +73,13 @@ export async function runAskAgent(
 
     let tools;
     try {
-        // sum_transactions is a local tool: totals are computed in code, never
-        // by the model.
-        tools = [...await getMcpLangChainTools(mcpClient), buildSumTransactionsTool(mcpClient)];
+        // sum_transactions and analyze_spending are local tools: all totals,
+        // comparisons and projections are computed in code, never by the model.
+        tools = [
+            ...await getMcpLangChainTools(mcpClient),
+            buildSumTransactionsTool(mcpClient),
+            buildAnalyzeSpendingTool(mcpClient),
+        ];
     } catch (error) {
         console.error('❌ Failed to discover MCP tools:', error);
         return {
