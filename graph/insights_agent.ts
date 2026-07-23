@@ -1,6 +1,7 @@
 import { OpenRouterService } from '../services/open_router.ts';
 import { McpClientService, type McpTransaction } from '../services/mcp_client.ts';
 import { formatBRL } from '../lib/currency.ts';
+import { config } from '../config/config.ts';
 import {
     type YearMonth,
     addMonths,
@@ -21,22 +22,22 @@ import {
 // month"); see api/rest/report_insights.ts for the same compute-then-narrate
 // pattern.
 const SYSTEM_PROMPT = JSON.stringify({
-    role: 'Sharp personal-finance analyst writing ONE insight for a slim app header.',
-    task: 'Pick the SINGLE most meaningful finding from the pre-computed figures in the user message and phrase it as one short insight. You only choose and phrase — every number is already computed for you.',
+    role: 'Sharp personal-finance analyst writing a two-part spending insight: a one-line headline plus an expandable detailed breakdown.',
+    task: 'From the pre-computed figures in the user message, write (1) a single headline stating the SINGLE most important finding, then (2) a short detailed analysis that surfaces the other notable, non-obvious findings the user would miss at a glance. You only choose, prioritise and phrase — every number is already computed for you.',
     method: [
-        'The figures are authoritative and already scoped to the correct periods. NEVER recompute, re-add, estimate, or invent any number.',
+        'The figures are authoritative and already scoped to the correct periods. NEVER recompute, re-add, estimate, or invent any number. Use only numbers that appear verbatim in the figures.',
         'All monetary values are pre-formatted as Brazilian Reais (R$) — reproduce them exactly as written, character for character (e.g. "R$ 906,47").',
-        'The current month is PARTIAL. Never present it as a full month, and when you compare it against a full month or the 6-month average, make the partial nature clear.',
-        'Prefer a specific category with a notable change (a spike or a saving) over a generic total. Use a biggest-transaction detail only to explain a spike.',
+        'The current month is PARTIAL. Never present it as a full month. When comparing it against a full month or the 6-month average, make the partial nature clear, and lean on the provided projected month-end total for a fair full-month comparison.',
+        'Prioritise the finding with the biggest financial impact for the headline; put the supporting movers, the projection, and any new / no-spend-yet categories in the details.',
+        'Be an analyst, not a reporter: for each point say what changed, why it matters, and (when negative) a short, concrete nudge the user could not easily spot alone.',
     ],
     output_rules: [
-        'Return ONLY the insight text — no preamble, no markdown, no surrounding quotes.',
-        '1-2 sentences, maximum ~45 words. It must fit in a slim app header.',
-        'Cite concrete R$ values and/or percentages taken verbatim from the figures.',
-        'Be an analyst, not a reporter: say what changed, why it matters, and (when negative) a short nudge to pay attention.',
-        'Warm, direct tone. Examples of the expected style: "Nice work — Groceries are down 23% vs last month, about R$ 420,00 saved." / "Heads up: Car costs are 15% above their 6-month average. Anything unusual? Keep an eye on it."',
+        'Output format, EXACTLY: first line = the headline. Then ONE blank line. Then the detailed analysis as markdown. Nothing before the headline (no label, no quotes).',
+        'Headline: one sentence, ~20 words max, plain text (no markdown), must stand alone in a slim header. Cite a concrete R$ value or percentage.',
+        'Details: 2-5 short markdown bullets (each starting with "- "). Optionally a bold lead-in per bullet, e.g. "- **Groceries**: down 23% vs last month, about R$ 420,00 saved.". Keep each bullet to 1-2 sentences. No headings, no tables, no preamble.',
+        'Cite concrete R$ values and/or percentages taken verbatim from the figures in both parts.',
         'Keep category names exactly as they appear in the figures (do not translate them).',
-        'Write in this language: {language}.',
+        'Warm, direct tone. Write everything (headline and details) in this language: {language}.',
     ],
 });
 
@@ -144,17 +145,42 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
         ...lastMonthByCat.keys(),
         ...baselineByCat.keys(),
     ]);
-    const rows = [...catIds]
-        .map((cid) => ({
-            name: nameOf(cid),
-            current: currentByCat.get(cid) ?? 0,
-            lastMonth: lastMonthByCat.get(cid) ?? 0,
-            baseline: baselineByCat.get(cid) ?? 0,
-        }))
-        // Rank by whichever of current/baseline is larger, so both spikes and
-        // stopped-spending categories can surface as the notable finding.
+    const allRows = [...catIds].map((cid) => ({
+        name: nameOf(cid),
+        current: currentByCat.get(cid) ?? 0,
+        lastMonth: lastMonthByCat.get(cid) ?? 0,
+        baseline: baselineByCat.get(cid) ?? 0,
+    }));
+
+    // Rank by whichever of current/baseline is larger, so both spikes and
+    // stopped-spending categories can surface as the notable finding.
+    const rows = [...allRows]
         .sort((a, b) => Math.max(b.current, b.baseline) - Math.max(a.current, a.baseline))
         .slice(0, MAX_CATEGORY_ROWS);
+
+    // Pre-computed movers/new/no-spend lists so the model can surface non-obvious
+    // changes WITHOUT doing any arithmetic itself (that rule exists for a reason —
+    // see the note at the top of this file).
+    const MOVER_ROWS = 3;
+    const increases = allRows
+        .filter((r) => r.current - r.lastMonth > 0.005)
+        .sort((a, b) => b.current - b.lastMonth - (a.current - a.lastMonth))
+        .slice(0, MOVER_ROWS);
+    const decreases = allRows
+        .filter((r) => r.current - r.lastMonth < -0.005)
+        .sort((a, b) => a.current - a.lastMonth - (b.current - b.lastMonth))
+        .slice(0, MOVER_ROWS);
+    const newCategories = allRows.filter((r) => r.current > 0 && r.lastMonth === 0 && r.baseline === 0);
+    const noSpendYet = allRows
+        .filter((r) => r.current === 0 && r.baseline > 0)
+        .sort((a, b) => b.baseline - a.baseline)
+        .slice(0, MOVER_ROWS);
+
+    // Simple linear projection of the full-month total from the pace so far. The
+    // math lives here (never the model) and gives it a fair full-month comparison.
+    const daysInMonth = new Date(Date.UTC(current.year, current.month, 0)).getUTCDate();
+    const daysElapsed = Math.max(1, today.day);
+    const projectedTotal = (currentTotal / daysElapsed) * daysInMonth;
 
     const biggest = [...currentTx]
         .filter((t) => expenseAmount(t) > 0)
@@ -171,6 +197,9 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
     lines.push(`- This month so far: ${formatBRL(currentTotal)}`);
     lines.push(`- Last full month (${monthKey(previous)}): ${formatBRL(lastMonthTotal)}`);
     lines.push(`- 6-month monthly average: ${formatBRL(baselineTotal)}`);
+    lines.push(
+        `- Projected full-month total at the current pace (${today.day}/${daysInMonth} days elapsed): ${formatBRL(projectedTotal)}`,
+    );
     lines.push('');
     lines.push('BY CATEGORY (this month so far vs last full month vs 6-month monthly average)');
     for (const r of rows) {
@@ -182,6 +211,42 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
                 ` | vs last month ${pctChange(r.current, r.lastMonth)}`,
         );
     }
+
+    if (increases.length > 0) {
+        lines.push('');
+        lines.push('BIGGEST INCREASES VS LAST FULL MONTH');
+        for (const r of increases) {
+            lines.push(
+                `- ${r.name}: this month ${formatBRL(r.current)} vs last month ${formatBRL(r.lastMonth)}` +
+                    ` (${pctChange(r.current, r.lastMonth)})`,
+            );
+        }
+    }
+    if (decreases.length > 0) {
+        lines.push('');
+        lines.push('BIGGEST DECREASES VS LAST FULL MONTH (may partly reflect the partial month)');
+        for (const r of decreases) {
+            lines.push(
+                `- ${r.name}: this month ${formatBRL(r.current)} vs last month ${formatBRL(r.lastMonth)}` +
+                    ` (${pctChange(r.current, r.lastMonth)})`,
+            );
+        }
+    }
+    if (newCategories.length > 0) {
+        lines.push('');
+        lines.push('NEW THIS MONTH (spending with no last-month or 6-month-average history)');
+        for (const r of newCategories) {
+            lines.push(`- ${r.name}: ${formatBRL(r.current)}`);
+        }
+    }
+    if (noSpendYet.length > 0) {
+        lines.push('');
+        lines.push('NO SPEND YET THIS MONTH (categories that usually have spend by their 6-month average)');
+        for (const r of noSpendYet) {
+            lines.push(`- ${r.name}: 6-mo avg ${formatBRL(r.baseline)}`);
+        }
+    }
+
     if (biggest.length > 0) {
         lines.push('');
         lines.push('BIGGEST TRANSACTIONS THIS MONTH');
@@ -225,7 +290,12 @@ export async function runInsightsAgent(
     const result = await llmClient.generateText(
         SYSTEM_PROMPT.replace('{language}', language),
         facts.text,
-        { sessionId: options?.sessionId, tags: ['insights-endpoint', 'compute-then-phrase'] },
+        {
+            sessionId: options?.sessionId,
+            tags: ['insights-endpoint', 'compute-then-phrase'],
+            model: config.insightsModel,
+            maxTokens: config.insightsMaxTokens,
+        },
     );
 
     if (!result.success || !result.data.trim()) {
