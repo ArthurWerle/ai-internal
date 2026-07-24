@@ -9,6 +9,7 @@ import { OpenRouterService } from "./services/open_router.ts";
 import { McpClientService } from "./services/mcp_client.ts";
 import { ChatsService } from "./services/chats.ts";
 import { InsightsService } from "./services/insights.ts";
+import { GeneratedUisService } from "./services/generated_uis.ts";
 import ask from "@api/rest/ask.ts";
 import scanner from "@api/rest/scanner.ts";
 import reportInsights from "@api/rest/report_insights.ts";
@@ -29,12 +30,14 @@ function addDecorators() {
   const mcpClient = new McpClientService()
   const chatsService = new ChatsService(db)
   const insightsService = new InsightsService(db)
+  const generatedUisService = new GeneratedUisService(db)
 
   fastify.decorate('db', db)
   fastify.decorate('openRouterClient', openRouterClient)
   fastify.decorate('mcpClient', mcpClient)
   fastify.decorate('chatsService', chatsService)
   fastify.decorate('insightsService', insightsService)
+  fastify.decorate('generatedUisService', generatedUisService)
 }
 
 async function registerRoutes() {

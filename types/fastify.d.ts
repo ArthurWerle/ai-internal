@@ -3,6 +3,7 @@ import { OpenRouterService } from "../services/open_router.ts";
 import { McpClientService } from "../services/mcp_client.ts";
 import { ChatsService } from "../services/chats.ts";
 import { InsightsService } from "../services/insights.ts";
+import { GeneratedUisService } from "../services/generated_uis.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -11,5 +12,6 @@ declare module "fastify" {
     mcpClient: McpClientService;
     chatsService: ChatsService;
     insightsService: InsightsService;
+    generatedUisService: GeneratedUisService;
   }
 }

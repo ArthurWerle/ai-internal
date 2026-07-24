@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { HumanMessage } from "@langchain/core/messages";
 import { buildGenerateUiGraph } from "../../graph/generate_ui_graph.ts";
+import { config } from "../../config/config.ts";
 
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -56,8 +57,56 @@ async function routes(fastify: FastifyInstance) {
       return errorPage(result.error ?? 'Could not generate the page.');
     }
 
+    // Persist the generated page as this user's single enabled UI. Only possible
+    // when a userId is provided; never let a persistence failure break the
+    // response — the caller still gets the freshly generated HTML.
+    if (userId) {
+      try {
+        await fastify.generatedUisService.saveEnabled({
+          userId,
+          question,
+          html: result.html,
+          metadata: {
+            model: config.uiGenerationModel,
+            sessionId,
+            generatedAt: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        fastify.log.error({ err: error, userId }, 'Failed to persist generated UI');
+      }
+    }
+
     reply.type('text/html; charset=utf-8');
     return result.html;
+  });
+
+  // Returns the single enabled UI for a user, as a renderable HTML page.
+  fastify.get("/generated-ui", {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['userId'],
+        properties: {
+          userId: {
+            type: 'string',
+            minLength: 1,
+            description: 'User whose enabled UI should be returned'
+          }
+        }
+      }
+    },
+  }, async (request, reply) => {
+    const { userId } = request.query as { userId: string };
+
+    const ui = await fastify.generatedUisService.getEnabled(userId);
+    if (!ui) {
+      reply.code(404).type('text/html; charset=utf-8');
+      return errorPage('No enabled UI found for this user yet.');
+    }
+
+    reply.type('text/html; charset=utf-8');
+    return ui.html;
   });
 }
 
