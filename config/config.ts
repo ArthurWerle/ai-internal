@@ -32,7 +32,13 @@ export const config = {
   // Analytical questions (compare months, then break down, then project) chain
   // several tool rounds, so the limit is a bit higher than the CRUD-era default.
   agentRecursionLimit: Number(process.env.AGENT_RECURSION_LIMIT ?? '40'),
-  uiGenerationModel: process.env.UI_GENERATION_MODEL ?? 'anthropic/claude-sonnet-4.5',
+  // On-demand UI generation (/generate-ui). This produces a full single-file
+  // HTML page from the user's data, so it wants the strongest available coding/
+  // design model rather than the cheap default. Defaults to an Opus-tier Claude;
+  // override with UI_GENERATION_MODEL. If claude-opus-4.5 isn't served by the
+  // account's OpenRouter, fall back to anthropic/claude-opus-4.1 (already used by
+  // /insights and known to work here).
+  uiGenerationModel: process.env.UI_GENERATION_MODEL ?? 'anthropic/claude-opus-4.5',
   provider: {
     sort: {
       by: 'throughput',

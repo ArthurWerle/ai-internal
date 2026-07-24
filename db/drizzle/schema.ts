@@ -50,3 +50,16 @@ export const insightsTable = pgTable("insights", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("insights_kind_period_active_idx").on(table.kind, table.periodKey, table.active)]);
+
+// AI-generated single-file HTML pages from /generate-ui. Only one row per
+// user is enabled at a time: generating a new page for a user flips the
+// previous enabled row to false, and GET /generated-ui returns the enabled one.
+export const generatedUisTable = pgTable("generated_uis", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  question: text("question"),
+  html: text("html").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("generated_uis_user_enabled_idx").on(table.userId, table.enabled)]);
