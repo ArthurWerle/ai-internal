@@ -43,6 +43,9 @@ function addDecorators() {
 async function registerRoutes() {
   await fastify.register(cors, {
     origin: true,
+    // Let the browser read the chat id returned by /generate-ui and
+    // /generated-ui so the frontend can continue the conversation.
+    exposedHeaders: ['X-Chat-Id'],
   });
 
   await fastify.register(health);

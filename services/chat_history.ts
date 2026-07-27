@@ -31,3 +31,24 @@ export function toBaseMessages(messages: ChatMessageWithAttachments[]): BaseMess
     return new HumanMessage({ content: buildMultimodalContentParts(parts) });
   });
 }
+
+// History builder for /generate-ui. Its assistant turns are full HTML documents,
+// so replaying every one would bloat the agent context with stale markup. Keep
+// all user questions verbatim (so the model sees the full request sequence) but
+// include only the MOST RECENT assistant page in full — the one a follow-up like
+// "make the title green" edits; earlier pages become a short placeholder.
+export function buildUiHistory(messages: ChatMessageWithAttachments[]): BaseMessage[] {
+  let lastAssistantIndex = -1;
+  messages.forEach((message, index) => {
+    if (message.role === "assistant") lastAssistantIndex = index;
+  });
+
+  return messages.map((message, index) => {
+    if (message.role === "assistant") {
+      return index === lastAssistantIndex
+        ? new AIMessage(message.content)
+        : new AIMessage("[previous version of the page omitted]");
+    }
+    return new HumanMessage(message.content);
+  });
+}

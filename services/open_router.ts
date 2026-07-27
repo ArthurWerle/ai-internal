@@ -152,6 +152,12 @@ export class OpenRouterService {
     userId?: string;
     sessionId?: string;
     tags?: string[];
+    // Callers that need a different model/token budget than the shared agent
+    // client (e.g. /generate-ui runs on the strong UI model and emits a full
+    // HTML document) get a dedicated client; everyone else keeps agentClient.
+    model?: string;
+    maxTokens?: number;
+    temperature?: number;
   }): Promise<AgentRunResult> {
     const langfuseHandler = new CallbackHandler({
       userId: options.userId,
@@ -159,8 +165,15 @@ export class OpenRouterService {
       tags: options.tags ?? ['openrouter', 'agent'],
     });
 
+    const client = options.model
+      ? this.buildClient([options.model], {
+          temperature: options.temperature ?? config.agentTemperature,
+          maxTokens: options.maxTokens,
+        })
+      : this.agentClient;
+
     const agent = createAgent({
-      model: this.agentClient,
+      model: client,
       tools: options.tools,
     });
 
