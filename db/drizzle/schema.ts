@@ -13,10 +13,14 @@ export const chatsTable = pgTable("chats", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: varchar("user_id", { length: 255 }),
   title: varchar("title", { length: 255 }),
+  // Which service created/owns this chat (e.g. "financer", "uiless-financer").
+  // Nullable for pre-origin rows; the chat list filters by it so each service
+  // only sees its own conversations instead of every chat for the same user.
+  origin: varchar("origin", { length: 255 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+}, (table) => [index("chats_user_origin_idx").on(table.userId, table.origin)]);
 
 export const chatMessagesTable = pgTable("chat_messages", {
   id: uuid("id").primaryKey().defaultRandom(),

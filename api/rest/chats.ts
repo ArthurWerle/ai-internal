@@ -7,19 +7,21 @@ async function routes(fastify: FastifyInstance) {
         type: "object",
         properties: {
           userId: { type: "string" },
+          origin: { type: "string" },
           limit: { type: "integer" },
           offset: { type: "integer" },
         },
       },
     },
   }, async (request) => {
-    const { userId, limit, offset } = request.query as {
+    const { userId, origin, limit, offset } = request.query as {
       userId?: string;
+      origin?: string;
       limit?: number;
       offset?: number;
     };
 
-    const data = await fastify.chatsService.listChats({ userId, limit, offset });
+    const data = await fastify.chatsService.listChats({ userId, origin, limit, offset });
     return { success: true, data };
   });
 
@@ -50,13 +52,14 @@ async function routes(fastify: FastifyInstance) {
         properties: {
           title: { type: "string" },
           userId: { type: "string" },
+          origin: { type: "string" },
         },
       },
     },
   }, async (request) => {
-    const { title, userId } = request.body as { title?: string; userId?: string };
+    const { title, userId, origin } = request.body as { title?: string; userId?: string; origin?: string };
 
-    const data = await fastify.chatsService.createChat({ title, userId });
+    const data = await fastify.chatsService.createChat({ title, userId, origin });
     return { success: true, data };
   });
 

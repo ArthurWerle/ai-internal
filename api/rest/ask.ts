@@ -40,22 +40,27 @@ async function routes(fastify: FastifyInstance) {
           chatId: {
             type: 'string',
             description: 'Optional chat ID to continue an existing conversation'
+          },
+          origin: {
+            type: 'string',
+            description: 'Calling service that owns this chat (defaults to "financer")'
           }
         }
       }
     },
   }, async (request, reply) => {
-    const { messages, userId, sessionId, chatId } = request.body as {
+    const { messages, userId, sessionId, chatId, origin } = request.body as {
       messages: MessagePart[];
       userId?: string;
       sessionId?: string;
       chatId?: string;
+      origin?: string;
     };
 
     const isNewChat = !chatId;
     const chat = chatId
       ? await fastify.chatsService.getChat(chatId)
-      : await fastify.chatsService.createChat({ userId });
+      : await fastify.chatsService.createChat({ userId, origin: origin ?? "financer" });
 
     if (!chat) {
       reply.code(404);
