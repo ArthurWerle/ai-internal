@@ -24,10 +24,10 @@ export type NewAttachment = {
 export class ChatsService {
   constructor(private db: NodePgDatabase<any>) {}
 
-  async createChat(params: { userId?: string; title?: string }): Promise<Chat> {
+  async createChat(params: { userId?: string; title?: string; origin?: string }): Promise<Chat> {
     const [chat] = await this.db
       .insert(chatsTable)
-      .values({ userId: params.userId, title: params.title })
+      .values({ userId: params.userId, title: params.title, origin: params.origin })
       .returning();
     return chat;
   }
@@ -40,9 +40,10 @@ export class ChatsService {
     return chat ?? null;
   }
 
-  async listChats(params?: { userId?: string; limit?: number; offset?: number }): Promise<Chat[]> {
+  async listChats(params?: { userId?: string; origin?: string; limit?: number; offset?: number }): Promise<Chat[]> {
     const conditions = [isNull(chatsTable.deletedAt)];
     if (params?.userId) conditions.push(eq(chatsTable.userId, params.userId));
+    if (params?.origin) conditions.push(eq(chatsTable.origin, params.origin));
 
     return this.db
       .select()

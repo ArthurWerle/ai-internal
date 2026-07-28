@@ -77,16 +77,21 @@ async function routes(fastify: FastifyInstance) {
           chatId: {
             type: 'string',
             description: 'Optional chat ID to continue an existing UI conversation (so follow-ups like "make the title green" refine the previous page)'
+          },
+          origin: {
+            type: 'string',
+            description: 'Calling service that owns this chat (defaults to "uiless-financer")'
           }
         }
       }
     },
   }, async (request, reply) => {
-    const { question, userId, sessionId, chatId } = request.body as {
+    const { question, userId, sessionId, chatId, origin } = request.body as {
       question: string;
       userId?: string;
       sessionId?: string;
       chatId?: string;
+      origin?: string;
     };
 
     // Anonymous callers get a stateless one-shot: no conversation, no
@@ -108,7 +113,7 @@ async function routes(fastify: FastifyInstance) {
     // new one, so follow-up requests can refine the previously generated page.
     const chat = chatId
       ? await fastify.chatsService.getChat(chatId)
-      : await fastify.chatsService.createChat({ userId });
+      : await fastify.chatsService.createChat({ userId, origin: origin ?? "uiless-financer" });
 
     if (!chat) {
       reply.code(404).type('text/html; charset=utf-8');
