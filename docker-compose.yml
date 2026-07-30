@@ -10,6 +10,11 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "3005:3005"
+    labels:
+      prometheus.io/scrape: "true"
+      prometheus.io/hostport: "3005"
+      prometheus.io/path: "/metrics"
+      environment: "production"
     restart: unless-stopped
     depends_on:
       postgres:
