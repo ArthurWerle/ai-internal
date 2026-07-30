@@ -16,6 +16,7 @@ import reportInsights from "@api/rest/report_insights.ts";
 import chats from "@api/rest/chats.ts";
 import generateUi from "@api/rest/generate_ui.ts";
 import insights from "@api/rest/insights.ts";
+import { registerMetrics } from "./lib/metrics.ts";
 
 const fastify = Fastify({
   logger: true,
@@ -47,6 +48,9 @@ async function registerRoutes() {
     // /generated-ui so the frontend can continue the conversation.
     exposedHeaders: ['X-Chat-Id'],
   });
+
+  // Observability: request metrics + GET /metrics for Prometheus.
+  registerMetrics(fastify);
 
   await fastify.register(health);
   await fastify.register(ask);
