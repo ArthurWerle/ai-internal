@@ -14,6 +14,11 @@ export const config = {
     process.env.AGENT_MODEL ?? 'anthropic/claude-sonnet-4.5',
   ],
   agentTemperature: 0.2,
+  // Max output tokens for the /ask agent. Without this, OpenRouter defaults to
+  // the model's ceiling (64000 for claude-sonnet-4.5), which inflates the
+  // credits each request reserves and makes 402 "insufficient credits" errors
+  // more likely. Cap it to a sane budget; override with AGENT_MAX_TOKENS.
+  agentMaxTokens: Number(process.env.AGENT_MAX_TOKENS ?? '16000'),
   // Spending-insights model (/insights + /insights/rebuild). The cheap flash
   // model in `models` above only phrased a single header line; a richer,
   // multi-part analysis that surfaces non-obvious findings wants a strong
