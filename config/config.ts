@@ -22,6 +22,16 @@ export const config = {
   insightsModel: process.env.INSIGHTS_MODEL ?? 'anthropic/claude-opus-4.1',
   // Headline + detailed markdown body needs more room than the old ~45-word line.
   insightsMaxTokens: Number(process.env.INSIGHTS_MAX_TOKENS ?? '900'),
+  // "Early month" gate for the spending insight. Right after a month rolls over
+  // there is nothing meaningful to say about the current month — every category
+  // looks "low" or "unspent" simply because the month just started, which is
+  // obvious, not a finding. When BOTH conditions hold the insight pivots to a
+  // retrospective heads-up about last month instead of judging the partial one.
+  // Days into the month (inclusive) that still count as "just started".
+  insightsEarlyMonthMaxDays: Number(process.env.INSIGHTS_EARLY_MONTH_MAX_DAYS ?? '5'),
+  // ...and the current-month total is still below this fraction of the typical
+  // monthly spend (6-month average), i.e. not enough has happened yet.
+  insightsEarlyMonthSpendFraction: Number(process.env.INSIGHTS_EARLY_MONTH_SPEND_FRACTION ?? '0.15'),
   // Receipt classification (/scan → identifyMessage) uses a stronger model than
   // the cheap default: reading a receipt and picking the right category by
   // establishment needs better instruction-following. Low temperature keeps the

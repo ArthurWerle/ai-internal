@@ -27,8 +27,9 @@ const SYSTEM_PROMPT = JSON.stringify({
     method: [
         'The figures are authoritative and already scoped to the correct periods. NEVER recompute, re-add, estimate, or invent any number. Use only numbers that appear verbatim in the figures.',
         'All monetary values are pre-formatted as Brazilian Reais (R$) — reproduce them exactly as written, character for character (e.g. "R$ 906,47").',
-        'The current month is PARTIAL. Never present it as a full month. When comparing it against a full month or the 6-month average, make the partial nature clear, and lean on the provided projected month-end total for a fair full-month comparison.',
-        'Prioritise the finding with the biggest financial impact for the headline; put the supporting movers, the projection, and any new / no-spend-yet categories in the details.',
+        'The current month is PARTIAL. Never present it as a full month, and NEVER extrapolate, project, or guess a month-end / run-rate total — no projections of any kind.',
+        'EARLY-MONTH RULE: when the figures carry an "early-month" notice (the current month just started), a category being low or unspent so far is EXPECTED simply because the month is young — this is obvious and must NEVER be reported as a finding (do not say things like "housing is low" or "no grocery spending yet"). Instead, base the insight on the LAST MONTH RETROSPECTIVE as a concrete, forward-looking heads-up (e.g. "Last month, {category} ran {X%} above its average — worth keeping an eye on it this month."). You may still call out a current-month item only if it is genuinely notable on its own, such as a large one-off purchase already made.',
+        'Prioritise the finding with the biggest financial impact for the headline; put the supporting movers and any new / no-spend-yet categories in the details.',
         'Be an analyst, not a reporter: for each point say what changed, why it matters, and (when negative) a short, concrete nudge the user could not easily spot alone.',
     ],
     output_rules: [
@@ -82,19 +83,26 @@ function pctChange(current: number, base: number): string {
     return `${pct > 0 ? '+' : ''}${pct}%`;
 }
 
-type SpendingFacts = { text: string; hasData: boolean };
+export type SpendingFacts = { text: string; hasData: boolean; mode: 'early' | 'normal' };
 
-async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promise<SpendingFacts> {
+export async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promise<SpendingFacts> {
     const today = nowInReportingTz(now);
     const current: YearMonth = { year: today.year, month: today.month };
     const previous = addMonths(current, -1);
 
-    // The 6 completed months before the current one form the baseline window.
+    // The 6 completed months before the current one form the current-month
+    // baseline. For the last-month retrospective we want an average that does
+    // NOT include last month itself, so we also keep the 6 months before LAST
+    // month — hence the history window reaches back one extra month.
     const baselineKeys: string[] = [];
     for (let i = BASELINE_MONTHS; i >= 1; i--) {
         baselineKeys.push(monthKey(addMonths(current, -i)));
     }
-    const historyStart = monthStart(addMonths(current, -BASELINE_MONTHS));
+    const priorBaselineKeys: string[] = [];
+    for (let i = BASELINE_MONTHS + 1; i >= 2; i--) {
+        priorBaselineKeys.push(monthKey(addMonths(current, -i)));
+    }
+    const historyStart = monthStart(addMonths(current, -(BASELINE_MONTHS + 1)));
     const historyEnd = monthEnd(previous);
 
     // Fetch with explicit start/end dates — never the current_month flag: the
@@ -114,30 +122,77 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
     const historyByMonthCat = sumByMonthAndCategory(historyTx);
     const lastMonthByCat = historyByMonthCat.get(monthKey(previous)) ?? new Map<number, number>();
 
-    // 6-month monthly average per category: total over the window / 6 (months
-    // with no spend count as zero, which is what a monthly average should do).
-    const baselineByCat = new Map<number, number>();
-    for (const key of baselineKeys) {
-        const bucket = historyByMonthCat.get(key);
-        if (!bucket) continue;
-        for (const [cid, total] of bucket) {
-            baselineByCat.set(cid, (baselineByCat.get(cid) ?? 0) + total);
+    // Monthly average per category over a set of month keys: total over the
+    // window / number of months (months with no spend count as zero, which is
+    // what a monthly average should do).
+    const averageOver = (keys: string[]): Map<number, number> => {
+        const acc = new Map<number, number>();
+        for (const key of keys) {
+            const bucket = historyByMonthCat.get(key);
+            if (!bucket) continue;
+            for (const [cid, total] of bucket) {
+                acc.set(cid, (acc.get(cid) ?? 0) + total);
+            }
         }
-    }
-    for (const [cid, total] of baselineByCat) {
-        baselineByCat.set(cid, total / BASELINE_MONTHS);
-    }
+        for (const [cid, total] of acc) acc.set(cid, total / keys.length);
+        return acc;
+    };
+    const totalAverageOver = (keys: string[]): number =>
+        keys.reduce((sum, key) => {
+            const bucket = historyByMonthCat.get(key);
+            if (!bucket) return sum;
+            return sum + [...bucket.values()].reduce((a, b) => a + b, 0);
+        }, 0) / keys.length;
+
+    const baselineByCat = averageOver(baselineKeys);
+    const priorBaselineByCat = averageOver(priorBaselineKeys);
 
     const currentTotal = [...currentByCat.values()].reduce((a, b) => a + b, 0);
     const lastMonthTotal = [...lastMonthByCat.values()].reduce((a, b) => a + b, 0);
-    const baselineTotal = baselineKeys.reduce((acc, key) => {
-        const bucket = historyByMonthCat.get(key);
-        if (!bucket) return acc;
-        return acc + [...bucket.values()].reduce((a, b) => a + b, 0);
-    }, 0) / BASELINE_MONTHS;
+    const baselineTotal = totalAverageOver(baselineKeys);
+    const priorBaselineTotal = totalAverageOver(priorBaselineKeys);
 
     if (currentByCat.size === 0 && lastMonthByCat.size === 0 && baselineByCat.size === 0) {
-        return { text: '', hasData: false };
+        return { text: '', hasData: false, mode: 'normal' };
+    }
+
+    // Right after a month rolls over there is nothing meaningful to say about
+    // the current month: every category looks "low" or "unspent" simply because
+    // the month just started, which is obvious rather than a finding. When it is
+    // both early in the month AND little has been spent, pivot to a last-month
+    // retrospective instead of judging the partial current month.
+    const isEarlyMonth = today.day <= config.insightsEarlyMonthMaxDays &&
+        currentTotal < config.insightsEarlyMonthSpendFraction * baselineTotal;
+
+    const biggestTransactions = (txs: McpTransaction[], n: number): McpTransaction[] =>
+        [...txs]
+            .filter((t) => expenseAmount(t) > 0)
+            .sort((a, b) => expenseAmount(b) - expenseAmount(a))
+            .slice(0, n);
+    const txLine = (t: McpTransaction): string => {
+        const cid = categoryIdOf(t);
+        const cat = cid != null ? ` [${nameOf(cid)}]` : '';
+        return `${descriptionOf(t)}: ${formatBRL(expenseAmount(t))}${cat}`;
+    };
+
+    if (isEarlyMonth) {
+        return buildEarlyMonthFacts({
+            current,
+            previous,
+            dayOfMonth: today.day,
+            currentTotal,
+            lastMonthTotal,
+            priorBaselineTotal,
+            currentByCat,
+            lastMonthByCat,
+            baselineByCat,
+            priorBaselineByCat,
+            currentTx,
+            historyTx,
+            nameOf,
+            biggestTransactions,
+            txLine,
+        });
     }
 
     const catIds = new Set<number>([
@@ -176,16 +231,7 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
         .sort((a, b) => b.baseline - a.baseline)
         .slice(0, MOVER_ROWS);
 
-    // Simple linear projection of the full-month total from the pace so far. The
-    // math lives here (never the model) and gives it a fair full-month comparison.
-    const daysInMonth = new Date(Date.UTC(current.year, current.month, 0)).getUTCDate();
-    const daysElapsed = Math.max(1, today.day);
-    const projectedTotal = (currentTotal / daysElapsed) * daysInMonth;
-
-    const biggest = [...currentTx]
-        .filter((t) => expenseAmount(t) > 0)
-        .sort((a, b) => expenseAmount(b) - expenseAmount(a))
-        .slice(0, 3);
+    const biggest = biggestTransactions(currentTx, 3);
 
     const lines: string[] = [];
     lines.push(
@@ -197,9 +243,6 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
     lines.push(`- This month so far: ${formatBRL(currentTotal)}`);
     lines.push(`- Last full month (${monthKey(previous)}): ${formatBRL(lastMonthTotal)}`);
     lines.push(`- 6-month monthly average: ${formatBRL(baselineTotal)}`);
-    lines.push(
-        `- Projected full-month total at the current pace (${today.day}/${daysInMonth} days elapsed): ${formatBRL(projectedTotal)}`,
-    );
     lines.push('');
     lines.push('BY CATEGORY (this month so far vs last full month vs 6-month monthly average)');
     for (const r of rows) {
@@ -251,13 +294,100 @@ async function buildSpendingFacts(mcpClient: McpClientService, now: Date): Promi
         lines.push('');
         lines.push('BIGGEST TRANSACTIONS THIS MONTH');
         for (const t of biggest) {
-            const cid = categoryIdOf(t);
-            const cat = cid != null ? ` [${nameOf(cid)}]` : '';
-            lines.push(`- ${descriptionOf(t)}: ${formatBRL(expenseAmount(t))}${cat}`);
+            lines.push(`- ${txLine(t)}`);
         }
     }
 
-    return { text: lines.join('\n'), hasData: true };
+    return { text: lines.join('\n'), hasData: true, mode: 'normal' };
+}
+
+type EarlyMonthArgs = {
+    current: YearMonth;
+    previous: YearMonth;
+    dayOfMonth: number;
+    currentTotal: number;
+    lastMonthTotal: number;
+    priorBaselineTotal: number;
+    currentByCat: Map<number, number>;
+    lastMonthByCat: Map<number, number>;
+    baselineByCat: Map<number, number>;
+    priorBaselineByCat: Map<number, number>;
+    currentTx: McpTransaction[];
+    historyTx: McpTransaction[];
+    nameOf: (cid: number) => string;
+    biggestTransactions: (txs: McpTransaction[], n: number) => McpTransaction[];
+    txLine: (t: McpTransaction) => string;
+};
+
+// Early in the month there is nothing meaningful to judge about the current
+// month, so the facts deliberately WITHHOLD the misleading partial-vs-full
+// comparisons (no "% vs average", no "no spend yet") and instead hand the model
+// a last-month retrospective to turn into a forward-looking heads-up. Any
+// genuinely notable current-month item (a big one-off already made) still gets
+// through as information.
+function buildEarlyMonthFacts(a: EarlyMonthArgs): SpendingFacts {
+    const RETRO_ROWS = 3;
+
+    // Brand-new categories with real spend this month are worth flagging even
+    // this early — they are concrete events, not an absence.
+    const newThisMonth = [...a.currentByCat.entries()]
+        .filter(([cid, total]) => total > 0 && !(a.lastMonthByCat.get(cid) ?? 0) && !(a.baselineByCat.get(cid) ?? 0))
+        .map(([cid, total]) => ({ name: a.nameOf(cid), total }));
+
+    // Categories where last month most exceeded its own 6-month average — the
+    // basis for "watch out this month" guidance.
+    const retroCatIds = new Set<number>([...a.lastMonthByCat.keys(), ...a.priorBaselineByCat.keys()]);
+    const lastMonthVsAvg = [...retroCatIds]
+        .map((cid) => ({
+            name: a.nameOf(cid),
+            lastMonth: a.lastMonthByCat.get(cid) ?? 0,
+            avg: a.priorBaselineByCat.get(cid) ?? 0,
+        }))
+        .filter((r) => r.lastMonth > 0)
+        .sort((x, y) => (y.lastMonth - y.avg) - (x.lastMonth - x.avg))
+        .slice(0, RETRO_ROWS);
+
+    const lines: string[] = [];
+    lines.push(
+        `Reporting period: ${monthKey(a.current)} — the CURRENT month, which has just BEGUN (${a.dayOfMonth} day(s) elapsed).`,
+    );
+    lines.push(
+        'EARLY-MONTH NOTICE: it is too early to judge current-month spending. A category being low or unspent this early is EXPECTED and must NOT be reported as a finding. Base the insight on the LAST MONTH RETROSPECTIVE below as a heads-up for the month ahead; only mention a current-month item if it is genuinely notable on its own.',
+    );
+    lines.push('All amounts are in Brazilian Reais (R$) and already formatted. Reproduce them verbatim.');
+    lines.push('');
+    lines.push('CURRENT MONTH SO FAR (informational only — do NOT frame low or absent spend as a finding)');
+    lines.push(`- Spent so far this month: ${formatBRL(a.currentTotal)}`);
+    if (newThisMonth.length > 0) {
+        lines.push('- New spending this month (no history):');
+        for (const r of newThisMonth) lines.push(`  - ${r.name}: ${formatBRL(r.total)}`);
+    }
+    const currentBiggest = a.biggestTransactions(a.currentTx, 3);
+    if (currentBiggest.length > 0) {
+        lines.push('- Biggest transactions so far this month:');
+        for (const t of currentBiggest) lines.push(`  - ${a.txLine(t)}`);
+    }
+    lines.push('');
+    lines.push(
+        `LAST MONTH RETROSPECTIVE (${monthKey(a.previous)} — the most recent COMPLETE month; use this as the basis for a forward-looking heads-up)`,
+    );
+    lines.push(
+        `- Last month total: ${formatBRL(a.lastMonthTotal)} vs its 6-month average ${formatBRL(a.priorBaselineTotal)} (${pctChange(a.lastMonthTotal, a.priorBaselineTotal)})`,
+    );
+    if (lastMonthVsAvg.length > 0) {
+        lines.push('- Categories last month vs their 6-month average (biggest gaps first):');
+        for (const r of lastMonthVsAvg) {
+            lines.push(`  - ${r.name}: ${formatBRL(r.lastMonth)} vs avg ${formatBRL(r.avg)} (${pctChange(r.lastMonth, r.avg)})`);
+        }
+    }
+    const lastMonthTx = a.historyTx.filter((t) => monthKeyOf(t) === monthKey(a.previous));
+    const lastMonthBiggest = a.biggestTransactions(lastMonthTx, 3);
+    if (lastMonthBiggest.length > 0) {
+        lines.push('- Biggest transactions last month:');
+        for (const t of lastMonthBiggest) lines.push(`  - ${a.txLine(t)}`);
+    }
+
+    return { text: lines.join('\n'), hasData: true, mode: 'early' };
 }
 
 export async function runInsightsAgent(
