@@ -54,13 +54,26 @@ function extractText(message: BaseMessage | undefined): string {
   return '';
 }
 
+// OpenRouter answers 402 when the account is out of credits (or the request's
+// max_tokens costs more than the remaining balance). The OpenAI SDK surfaces
+// this as an error carrying `status: 402`; we also match the message text since
+// LangChain sometimes rethrows a wrapped error where only the message survives.
+export function isInsufficientCreditsError(error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  const message = error instanceof Error ? error.message : String(error);
+  return status === 402 || /requires more credits|add more credits|can only afford/i.test(message);
+}
+
 export class OpenRouterService {
   private llmClient: ChatOpenAI;
   private agentClient: ChatOpenAI;
 
   constructor() {
     this.llmClient = this.buildClient(config.models);
-    this.agentClient = this.buildClient(config.agentModels, { temperature: config.agentTemperature });
+    this.agentClient = this.buildClient(config.agentModels, {
+      temperature: config.agentTemperature,
+      maxTokens: config.agentMaxTokens,
+    });
   }
 
   private buildClient(models: string[], options?: { temperature?: number; maxTokens?: number }): ChatOpenAI {
@@ -238,6 +251,15 @@ export class OpenRouterService {
           success: false,
           error: 'agent_recursion_limit',
           answer: 'Sorry, that question needed too many steps — try asking something more specific.',
+          toolsUsed: [],
+          toolResults: [],
+        };
+      }
+      if (isInsufficientCreditsError(error)) {
+        return {
+          success: false,
+          error: 'insufficient_credits',
+          answer: "The AI assistant has reached its usage limit and can't answer right now. Please try again later.",
           toolsUsed: [],
           toolResults: [],
         };

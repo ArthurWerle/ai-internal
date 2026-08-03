@@ -109,6 +109,22 @@ async function routes(fastify: FastifyInstance) {
       await fastify.chatsService.updateChat(chat.id, { title: titleResult.data.title });
     }
 
+    // Out of OpenRouter credits: surface the limit clearly instead of the
+    // hardcoded success below. Returned before persistence so the limit notice
+    // isn't written into chat history as if it were a real assistant answer.
+    if (result.error === "insufficient_credits") {
+      reply.code(402);
+      return {
+        success: false,
+        chatId: chat.id,
+        intent: "agent",
+        error: "insufficient_credits",
+        errorCode: "insufficient_credits",
+        answer: result.answer,
+        toolsUsed: [],
+      };
+    }
+
     if (result.answer) {
       await fastify.chatsService.addMessage({
         chatId: chat.id,
