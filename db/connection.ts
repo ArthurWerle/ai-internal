@@ -27,35 +27,51 @@ function hasDatabaseSegment(rawUrl: string): boolean {
  * Returns a Postgres connection string.
  *
  * Preference order:
- *  1. DATABASE_URL, if set and it includes a non-empty database name.
- *  2. A URL built from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB, with
- *     POSTGRES_HOST (default "postgres", the compose service name) and
- *     POSTGRES_PORT (default "5432").
+ *  1. If POSTGRES_HOST is set (compose sets it to the `postgres` service name)
+ *     along with POSTGRES_USER + POSTGRES_DB, build from the discrete vars and
+ *     ignore DATABASE_URL. In the compose network those vars are authoritative,
+ *     so a stray DATABASE_URL (e.g. a local one pointing at localhost:5439) can
+ *     never override the in-network connection.
+ *  2. Otherwise (e.g. local dev, no POSTGRES_HOST): DATABASE_URL, if set and it
+ *     includes a non-empty database name.
+ *  3. Otherwise: build from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB with
+ *     a default host of "postgres" and port "5432".
  *
- * Throws with an actionable message if neither source is usable.
+ * Throws with an actionable message if none of the above is usable.
  */
 export function resolveDatabaseUrl(): string {
+  const user = process.env.POSTGRES_USER;
+  const password = process.env.POSTGRES_PASSWORD ?? "";
+  const database = process.env.POSTGRES_DB;
+  const host = process.env.POSTGRES_HOST;
+  const port = process.env.POSTGRES_PORT ?? "5432";
+
+  const buildFrom = (h: string) => {
+    const auth = `${encodeURIComponent(user!)}:${encodeURIComponent(password)}`;
+    return `postgres://${auth}@${h}:${port}/${encodeURIComponent(database!)}`;
+  };
+
+  // 1. In the compose network POSTGRES_HOST is set; discrete vars win.
+  if (host && user && database) {
+    return buildFrom(host);
+  }
+
+  // 2. Outside compose, an explicit DATABASE_URL (with a db name) takes over.
   const databaseUrl = process.env.DATABASE_URL;
   if (databaseUrl && hasDatabaseSegment(databaseUrl)) {
     return databaseUrl;
   }
 
-  const user = process.env.POSTGRES_USER;
-  const password = process.env.POSTGRES_PASSWORD ?? "";
-  const database = process.env.POSTGRES_DB;
-  const host = process.env.POSTGRES_HOST ?? "postgres";
-  const port = process.env.POSTGRES_PORT ?? "5432";
-
-  if (!user || !database) {
-    throw new Error(
-      "Cannot resolve a Postgres connection: set DATABASE_URL (including a " +
-        "database name), or set POSTGRES_USER and POSTGRES_DB (plus " +
-        "POSTGRES_PASSWORD / POSTGRES_HOST / POSTGRES_PORT as needed).",
-    );
+  // 3. Fall back to the discrete vars with a default host.
+  if (user && database) {
+    return buildFrom(host ?? "postgres");
   }
 
-  const auth = `${encodeURIComponent(user)}:${encodeURIComponent(password)}`;
-  return `postgres://${auth}@${host}:${port}/${encodeURIComponent(database)}`;
+  throw new Error(
+    "Cannot resolve a Postgres connection: set DATABASE_URL (including a " +
+      "database name), or set POSTGRES_USER and POSTGRES_DB (plus " +
+      "POSTGRES_PASSWORD / POSTGRES_HOST / POSTGRES_PORT as needed).",
+  );
 }
 
 /**
