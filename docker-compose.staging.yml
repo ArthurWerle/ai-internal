@@ -5,9 +5,10 @@ services:
     env_file:
       - stack.env
     environment:
-      # Reach postgres over the compose network (service name + internal port),
-      # not the host-published port. Overrides any DATABASE_URL from stack.env.
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # The app builds its own DATABASE_URL from the POSTGRES_* vars injected via
+      # env_file; only the host needs pointing at the compose network (the
+      # `postgres` service name), not the host-published port.
+      POSTGRES_HOST: postgres
     ports:
       - "3040:3005"
     labels:
@@ -33,19 +34,31 @@ services:
     container_name: ai-internal-staging-postgres
     env_file:
       - stack.env
+    # Without a restart policy, an exit (code 255 / OOM / host reboot) left the
+    # DB down until a manual restart, while the app crash-looped against it.
+    restart: unless-stopped
+    # Give postgres time to fast-shutdown cleanly before Docker sends SIGKILL,
+    # which is what leaves the "database was not properly shut down" recovery.
+    stop_grace_period: 60s
+    # Default /dev/shm is 64MB; too small can crash with "could not resize
+    # shared memory segment".
+    shm_size: 256mb
     ports:
       - 5440:5432
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Distinct volume name so staging never shares a data dir with prod even if
+      # both stacks are deployed under the same compose project name.
+      - postgres_data_staging:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
       - ai-internal-network
 volumes:
-  postgres_data:
+  postgres_data_staging:
 
 networks:
   ai-internal-network:
