@@ -71,6 +71,11 @@ const ReceiptScannerAnnotation = z.object({
   needsClarification: z.boolean().optional(),
   clarificationQuestion: z.string().optional(),
 
+  // Propose-only mode: run extraction + validation but STOP before
+  // createTransactions, so the caller gets `items` to review and nothing is
+  // persisted. Used by the "Create from receipt" review-then-confirm flow.
+  dryRun: z.boolean().optional(),
+
   error: z.string().optional(),
 });
 
@@ -94,8 +99,11 @@ export function buildReceiptScannerGraph(llmClient: OpenRouterService, mcpClient
         .addConditionalEdges('identifyMessage', (state: GraphState) =>
             state.error || state.needsClarification ? END : 'validateInput'
         )
+        // In dryRun (propose) mode, stop right after validation: `items` are
+        // returned for review and nothing is created. Otherwise proceed to
+        // create the transactions as usual.
         .addConditionalEdges('validateInput', (state: GraphState) =>
-            state.error ? END : 'createTransactions'
+            state.error ? END : state.dryRun ? END : 'createTransactions'
         )
         .addEdge('createTransactions', 'generateSummary')
         .addEdge('generateSummary', END);

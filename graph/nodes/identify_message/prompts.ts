@@ -47,6 +47,14 @@ export const getSystemPrompt = (categories: any[], sub_categories: any[], locati
             notes: 'Categories can be present, but maybe need to be infered.'
         }
     },
+    correction_mode: `
+        If the input is a JSON object containing "previously_extracted_items" (an array) and a
+        "user_correction" instruction, you are editing an existing proposal — do NOT parse an image.
+        Apply the correction to those items and return the FULL updated list in "items". Remap any
+        category/subcategory/location NAME mentioned in the correction to its ID from the lists below.
+        Leave every item the correction does not mention exactly as it was. Never set needsClarification
+        in this mode.
+    `,
     extraction_instructions: {
         category: `${CATEGORY_RULE}\nMatch the chosen category NAME to its ID (categoryId) from the categories list using fuzzy matching.`,
         subcategory: `${SUBCATEGORY_RULE}\nOutput the chosen subcategory as subcategoryId.`,
