@@ -130,3 +130,99 @@ export async function runAskAgent(
     console.log(`✅ Ask agent done (tools used: ${result.toolsUsed.join(', ') || 'none'})`);
     return { answer: result.answer, toolsUsed: result.toolsUsed, createdTransactionIds };
 }
+
+// Streaming events surfaced by runAskAgentStream. The token/tool events mirror
+// the agent's live work; the terminal 'result' event carries the same
+// AskAgentResult runAskAgent returns so the /ask/stream endpoint can persist and
+// respond with identical semantics to /ask.
+export type AskAgentStreamEvent =
+    | { type: 'token'; value: string }
+    | { type: 'tool_start'; name: string; args?: unknown }
+    | { type: 'tool_end'; name: string }
+    | { type: 'result'; result: AskAgentResult };
+
+// Streaming twin of runAskAgent: same tool discovery, list preloading and
+// system prompt, but it forwards the agent's work as it happens and ends with a
+// single 'result' event. Tool-discovery failure is reported as a terminal
+// result (no tokens), matching runAskAgent's early return.
+export async function* runAskAgentStream(
+    llmClient: OpenRouterService,
+    mcpClient: McpClientService,
+    input: { messages: BaseMessage[]; userId?: string; sessionId?: string; signal?: AbortSignal },
+): AsyncGenerator<AskAgentStreamEvent> {
+    console.log('🤖 Running ask agent (streaming)...');
+
+    let tools;
+    try {
+        tools = [
+            ...await getMcpLangChainTools(mcpClient),
+            buildSumTransactionsTool(mcpClient),
+            buildAnalyzeSpendingTool(mcpClient),
+        ];
+    } catch (error) {
+        console.error('❌ Failed to discover MCP tools:', error);
+        yield {
+            type: 'result',
+            result: {
+                answer: "Sorry, I can't reach the finance service right now.",
+                toolsUsed: [],
+                createdTransactionIds: [],
+                error: error instanceof Error ? error.message : String(error),
+            },
+        };
+        return;
+    }
+
+    let categories: McpCategory[] = [];
+    let subcategories: McpSubcategory[] = [];
+    let locations: McpLocation[] = [];
+    try {
+        [categories, subcategories, locations] = await Promise.all([
+            mcpClient.listCategories(),
+            mcpClient.listSubcategories(),
+            mcpClient.listLocations(),
+        ]);
+    } catch (error) {
+        console.warn('⚠️  Failed to preload categories/subcategories/locations, agent will fall back to list tools:', error);
+    }
+
+    const stream = llmClient.runAgentStream({
+        systemPrompt: buildSystemPrompt(new Date().toISOString().slice(0, 10), categories, subcategories, locations),
+        messages: input.messages,
+        tools,
+        userId: input.userId,
+        sessionId: input.sessionId,
+        tags: ['ask-endpoint', 'agent'],
+        signal: input.signal,
+    });
+
+    for await (const event of stream) {
+        if (event.type !== 'result') {
+            yield event;
+            continue;
+        }
+
+        const result = event.result;
+        const createdTransactionIds = extractCreatedTransactionIds(result.toolResults);
+
+        if (!result.success) {
+            console.warn('⚠️  Ask agent (streaming) failed:', result.error);
+            yield {
+                type: 'result',
+                result: {
+                    answer: result.answer || 'Sorry, something went wrong while answering.',
+                    toolsUsed: [],
+                    createdTransactionIds,
+                    error: result.error,
+                },
+            };
+            return;
+        }
+
+        console.log(`✅ Ask agent (streaming) done (tools used: ${result.toolsUsed.join(', ') || 'none'})`);
+        yield {
+            type: 'result',
+            result: { answer: result.answer, toolsUsed: result.toolsUsed, createdTransactionIds },
+        };
+    }
+}
