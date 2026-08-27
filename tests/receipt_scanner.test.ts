@@ -77,6 +77,25 @@ test('creates all items and never blocks when the classifier is confident', asyn
     assert.equal(identifyOptions[0]?.model, config.scanModel);
 });
 
+test('dryRun extracts items for review but creates nothing', async () => {
+    const { client: mcp, created } = mockMcp();
+    const { client: llm } = mockLlm({
+        items: [
+            { categoryId: 2, subcategoryId: 5, datetime: '2026-05-12T16:00:00.000Z', value: 8.9, description: 'Coxinha', location: 'Mercado 1' },
+            { categoryId: 2, subcategoryId: 6, datetime: '2026-05-12T16:00:00.000Z', value: 12.5, description: 'Detergente', location: 'Mercado 1' },
+        ],
+    });
+
+    const graph = buildReceiptScannerGraph(llm, mcp);
+    const result = await graph.invoke({ messages: [new HumanMessage('receipt')], dryRun: true });
+
+    // Items are surfaced for the review step, but the graph stops before
+    // createTransactions — nothing is persisted until the user confirms.
+    assert.equal(result.items?.length, 2);
+    assert.equal(created.length, 0);
+    assert.equal(result.createdTransactions, undefined);
+});
+
 test('asks and creates nothing when the classifier is unsure', async () => {
     const { client: mcp, created } = mockMcp();
     const { client: llm } = mockLlm({
