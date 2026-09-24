@@ -8,6 +8,8 @@ import {
     amountForType,
     categoryIdOf,
     descriptionOf,
+    excludedCategoryIds,
+    excludedCategoryNames,
     expenseAmount,
     fetchAllTransactions,
     monthEnd,
@@ -17,6 +19,7 @@ import {
     nowInReportingTz,
     subcategoryIdOf,
     sumByCategory,
+    withoutExcludedCategories,
     REPORTING_TIMEZONE,
 } from '../lib/transactions.ts';
 
@@ -61,10 +64,11 @@ export function buildSumTransactionsTool(mcpClient: McpClientService): Structure
                 const wanted = args.category_ids?.length ? new Set(args.category_ids) : null;
                 const wantedSub = args.subcategory_ids?.length ? new Set(args.subcategory_ids) : null;
                 const descNeedle = args.description_query?.trim().toLowerCase() || null;
+                const excluded = excludedCategoryIds(categories, wanted);
                 const byCategory = new Map<number | null, { total: number; count: number }>();
                 let total = 0;
                 let count = 0;
-                for (const t of transactions) {
+                for (const t of withoutExcludedCategories(transactions, excluded)) {
                     const amount = amountForType(t, type);
                     if (amount === 0) continue;
                     const cid = categoryIdOf(t);
@@ -100,6 +104,9 @@ export function buildSumTransactionsTool(mcpClient: McpClientService): Structure
                     ...(args.category_ids?.length ? { category_ids: args.category_ids } : {}),
                     ...(args.subcategory_ids?.length ? { subcategory_ids: args.subcategory_ids } : {}),
                     ...(descNeedle ? { description_query: args.description_query } : {}),
+                    ...(excluded.size > 0
+                        ? { excluded_categories: excludedCategoryNames(categories, excluded) }
+                        : {}),
                     total,
                     total_formatted: formatBRL(total),
                     transaction_count: count,
@@ -113,7 +120,7 @@ export function buildSumTransactionsTool(mcpClient: McpClientService): Structure
         {
             name: 'sum_transactions',
             description:
-                'Compute the EXACT total of transactions for a date range, overall and per category. Pages through every matching transaction and sums in code, so the returned numbers are authoritative. Optional filters, all applied in code: category_ids, subcategory_ids, and description_query (a case-insensitive substring on the description — e.g. "gasolina" to total only fuel rows). ALWAYS use this for any question about totals or amounts spent/earned ("how much", "total", "sum", "spending by category", "how much on X"). Never add up list_transactions rows yourself.',
+                'Compute the EXACT total of transactions for a date range, overall and per category. Pages through every matching transaction and sums in code, so the returned numbers are authoritative. Optional filters, all applied in code: category_ids, subcategory_ids, and description_query (a case-insensitive substring on the description — e.g. "gasolina" to total only fuel rows). Categories the user flagged as excluded from calculations are left out unless their id is passed in category_ids; the result lists them in excluded_categories, so mention that they were not counted. ALWAYS use this for any question about totals or amounts spent/earned ("how much", "total", "sum", "spending by category", "how much on X"). Never add up list_transactions rows yourself.',
             schema: SumTransactionsSchema,
         },
     );
@@ -163,11 +170,17 @@ export function buildAnalyzeSpendingTool(mcpClient: McpClientService): Structure
 
                 // Explicit start/end dates only — the backend ignores current_month
                 // and returns the entire history (see lib/transactions.ts).
-                const [currentTx, historyTx, categories] = await Promise.all([
+                const [allCurrentTx, allHistoryTx, categories] = await Promise.all([
                     fetchAllTransactions(mcpClient, { type: 'expense', start_date: monthStart(current), end_date: monthEnd(current) }),
                     fetchAllTransactions(mcpClient, { type: 'expense', start_date: historyStart, end_date: historyEnd }),
                     mcpClient.listCategories(),
                 ]);
+
+                // Categories excluded from calculations would skew the averages;
+                // they only count when explicitly requested via category_ids.
+                const excluded = excludedCategoryIds(categories, wanted);
+                const currentTx = withoutExcludedCategories(allCurrentTx, excluded);
+                const historyTx = withoutExcludedCategories(allHistoryTx, excluded);
 
                 const inScope = (t: (typeof currentTx)[number]) => {
                     if (!wanted) return true;
@@ -246,6 +259,9 @@ export function buildAnalyzeSpendingTool(mcpClient: McpClientService): Structure
                 return JSON.stringify({
                     reporting_timezone: REPORTING_TIMEZONE,
                     note: 'The current month is PARTIAL. projected_total is a run-rate estimate, not an actual figure.',
+                    ...(excluded.size > 0
+                        ? { excluded_categories: excludedCategoryNames(categories, excluded) }
+                        : {}),
                     current_month: {
                         month: monthKey(current),
                         partial: true,
@@ -277,7 +293,7 @@ export function buildAnalyzeSpendingTool(mcpClient: McpClientService): Structure
         {
             name: 'analyze_spending',
             description:
-                'Pre-computed spending analysis for the current (PARTIAL) month vs the last full month vs the trailing N-month monthly average, overall and per category, plus a run-rate projection for the current month. All figures are summed in code and authoritative — use this for comparisons across months, trends, spikes/savings, "where is my money going", and projections. Interpret the returned numbers; never recompute them.',
+                'Pre-computed spending analysis for the current (PARTIAL) month vs the last full month vs the trailing N-month monthly average, overall and per category, plus a run-rate projection for the current month. Categories the user flagged as excluded from calculations are left out unless their id is passed in category_ids (listed in excluded_categories). All figures are summed in code and authoritative — use this for comparisons across months, trends, spikes/savings, "where is my money going", and projections. Interpret the returned numbers; never recompute them.',
             schema: AnalyzeSpendingSchema,
         },
     );

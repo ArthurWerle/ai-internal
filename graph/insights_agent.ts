@@ -6,6 +6,7 @@ import {
     type YearMonth,
     addMonths,
     categoryIdOf,
+    excludedCategoryIds,
     expenseAmount,
     fetchAllTransactions,
     monthEnd,
@@ -13,6 +14,7 @@ import {
     monthStart,
     nowInReportingTz,
     sumByCategory,
+    withoutExcludedCategories,
 } from '../lib/transactions.ts';
 
 // The insight text is short and the numbers are already computed in code, so
@@ -108,11 +110,17 @@ export async function buildSpendingFacts(mcpClient: McpClientService, now: Date)
     // Fetch with explicit start/end dates — never the current_month flag: the
     // backend silently ignored it, returning the ENTIRE history as "this
     // month" (e.g. Moradia at R$ 115k / +2320%).
-    const [currentTx, historyTx, categories] = await Promise.all([
+    const [allCurrentTx, allHistoryTx, categories] = await Promise.all([
         fetchAllTransactions(mcpClient, { type: 'expense', start_date: monthStart(current), end_date: monthEnd(current) }),
         fetchAllTransactions(mcpClient, { type: 'expense', start_date: historyStart, end_date: historyEnd }),
         mcpClient.listCategories(),
     ]);
+
+    // Categories excluded from calculations (e.g. one-off purchases) would
+    // skew every average and comparison below, so they are left out entirely.
+    const excluded = excludedCategoryIds(categories);
+    const currentTx = withoutExcludedCategories(allCurrentTx, excluded);
+    const historyTx = withoutExcludedCategories(allHistoryTx, excluded);
 
     const categoryName = new Map<number, string>();
     for (const c of categories) categoryName.set(c.id, c.name);

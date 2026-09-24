@@ -103,3 +103,46 @@ test('analyze_spending compares the current month against the last full month', 
     // Run-rate projection over a partial month can only be >= what is spent.
     assert.ok(res.current_month.projected_total >= res.current_month.total);
 });
+
+const CATS_WITH_EXCLUDED = [
+    { id: 5, name: 'Carro' },
+    { id: 8, name: 'Compras Avulsas', exclude_from_calculations: true },
+];
+
+test('sum_transactions leaves excluded categories out unless explicitly requested', async () => {
+    const tx: McpTransaction[] = [
+        { id: 1, type: 'expense', amount: 100, category_id: 5, description: 'a', date: '2026-07-18' },
+        { id: 2, type: 'expense', amount: 5000, category_id: 8, description: 'b', date: '2026-07-10' },
+    ];
+    const tool = buildSumTransactionsTool(fakeMcp(tx, CATS_WITH_EXCLUDED));
+
+    const all = JSON.parse((await tool.invoke({ start_date: '2026-07-01', end_date: '2026-07-31' })) as string);
+    assert.equal(all.total, 100);
+    assert.deepEqual(all.excluded_categories, ['Compras Avulsas']);
+
+    const requested = JSON.parse(
+        (await tool.invoke({ start_date: '2026-07-01', end_date: '2026-07-31', category_ids: [8] })) as string,
+    );
+    assert.equal(requested.total, 5000);
+    assert.equal('excluded_categories' in requested, false);
+});
+
+test('analyze_spending leaves excluded categories out of totals and averages', async () => {
+    const today = nowInReportingTz(new Date());
+    const current = { year: today.year, month: today.month };
+    const lastMonth = `${monthKey(addMonths(current, -1))}-10`;
+    const thisMonth = `${monthKey(current)}-01`;
+    const tx: McpTransaction[] = [
+        { id: 1, type: 'expense', amount: 600, category_id: 5, description: 'a', date: lastMonth },
+        { id: 2, type: 'expense', amount: 9000, category_id: 8, description: 'b', date: lastMonth },
+        { id: 3, type: 'expense', amount: 7000, category_id: 8, description: 'c', date: thisMonth },
+    ];
+    const tool = buildAnalyzeSpendingTool(fakeMcp(tx, CATS_WITH_EXCLUDED));
+
+    const res = JSON.parse((await tool.invoke({})) as string);
+    assert.equal(res.current_month.total, 0);
+    assert.equal(res.last_full_month.total, 600);
+    assert.equal(res.baseline.monthly_average_total, 100);
+    assert.deepEqual(res.excluded_categories, ['Compras Avulsas']);
+    assert.equal(res.by_category.some((c: any) => c.category_id === 8), false);
+});
