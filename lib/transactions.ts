@@ -1,4 +1,4 @@
-import type { McpClientService, McpTransaction } from '../services/mcp_client.ts';
+import type { McpCategory, McpClientService, McpTransaction } from '../services/mcp_client.ts';
 
 // Shared transaction math used by the insights agent and the ask agent's
 // sum_transactions tool. Totals must always be computed here, in code — never
@@ -114,4 +114,29 @@ export function sumByCategory(transactions: McpTransaction[]): Map<number, numbe
         totals.set(cid, (totals.get(cid) ?? 0) + amount);
     }
     return totals;
+}
+
+// Ids of categories flagged exclude_from_calculations, minus any the caller
+// explicitly asked for (asking for a category by id means the user wants it
+// counted). Mirrors the transactions service, which leaves these categories
+// out of every average and report.
+export function excludedCategoryIds(categories: McpCategory[], requested?: Set<number> | null): Set<number> {
+    return new Set(
+        categories
+            .filter((c) => c.exclude_from_calculations && !requested?.has(c.id))
+            .map((c) => c.id),
+    );
+}
+
+export function withoutExcludedCategories(transactions: McpTransaction[], excluded: Set<number>): McpTransaction[] {
+    if (excluded.size === 0) return transactions;
+    return transactions.filter((t) => {
+        const cid = categoryIdOf(t);
+        return cid == null || !excluded.has(cid);
+    });
+}
+
+// Names of the excluded categories, for telling the model what was left out.
+export function excludedCategoryNames(categories: McpCategory[], excluded: Set<number>): string[] {
+    return categories.filter((c) => excluded.has(c.id)).map((c) => c.name);
 }

@@ -101,3 +101,25 @@ test('no history and no current spend yields no data', async () => {
     const facts = await buildSpendingFacts(client, new Date(Date.UTC(2026, 7, 1, 15, 0, 0)));
     assert.equal(facts.hasData, false);
 });
+
+test('categories excluded from calculations never reach the facts', async () => {
+    const history = buildHistory();
+    history.push(tx('2026-07-15', 20000, 5)); // one-off purchase last month
+    const current = [
+        tx('2026-08-05', 3000, 2), // Grocery
+        tx('2026-08-10', 4200, 3), // Housing
+        tx('2026-08-11', 15000, 5), // one-off purchase this month
+    ];
+    const client = mockClient([...history, ...current]);
+    (client as any).listCategories = () =>
+        Promise.resolve([...CATEGORIES, { id: 5, name: 'Compras Avulsas', exclude_from_calculations: true }]);
+
+    const facts = await buildSpendingFacts(client, new Date(Date.UTC(2026, 7, 20, 15, 0, 0)));
+
+    assert.equal(facts.mode, 'normal');
+    assert.doesNotMatch(facts.text, /Compras Avulsas/);
+    // Totals only carry the counted categories: 3000 + 4200 this month,
+    // 4000 + 5000 + 1000 last month.
+    assert.match(facts.text, /This month so far: R\$\s7\.200,00/);
+    assert.match(facts.text, /Last full month \(2026-07\): R\$\s10\.000,00/);
+});

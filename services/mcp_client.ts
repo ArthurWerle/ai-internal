@@ -2,7 +2,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { config } from '../config/config.ts';
 
-export type McpCategory = { id: number; name: string };
+// exclude_from_calculations: the category is left out of averages, totals and
+// comparisons (e.g. one-off purchases that would skew them).
+export type McpCategory = { id: number; name: string; exclude_from_calculations?: boolean };
 export type McpSubcategory = { id: number; name: string };
 export type McpLocation = { id: number; name: string };
 
