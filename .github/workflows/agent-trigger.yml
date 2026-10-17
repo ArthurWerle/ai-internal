@@ -1,0 +1,37 @@
+name: agent
+
+# Software factory: label an issue with `agent:todo` to have Claude work on it.
+# Logic lives in ArthurWerle/ai-internal/.github/workflows (agent.yml, agent-deps.yml).
+
+on:
+  issues:
+    types: [labeled, closed]
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue to run the agent on
+        required: true
+        type: number
+
+jobs:
+  run:
+    if: >-
+      (github.event_name == 'issues' && github.event.action == 'labeled'
+        && github.event.label.name == 'agent:todo' && github.actor == github.repository_owner)
+      || github.event_name == 'workflow_dispatch'
+    uses: ArthurWerle/ai-internal/.github/workflows/agent.yml@main
+    with:
+      issue_number: ${{ github.event.issue.number || inputs.issue_number }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      AGENT_GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+
+  deps:
+    if: (github.event_name == 'issues' && github.event.action == 'closed') || github.event_name == 'schedule'
+    uses: ArthurWerle/ai-internal/.github/workflows/agent-deps.yml@main
+    with:
+      closed_issue: ${{ github.event.issue.number || 0 }}
+    secrets:
+      AGENT_GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}

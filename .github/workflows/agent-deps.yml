@@ -1,0 +1,87 @@
+name: agent-deps
+
+# Reusable workflow: re-queues issues waiting on dependencies (agent:waiting-dep) once all their
+# child issues in other repos are closed.
+# - closed_issue > 0: a child issue was closed, check its parent
+# - closed_issue = 0: daily sweep over this repo's agent:waiting-dep issues
+
+on:
+  workflow_call:
+    inputs:
+      closed_issue:
+        required: false
+        type: number
+        default: 0
+    secrets:
+      AGENT_GH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+      REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+      CLOSED_ISSUE: ${{ inputs.closed_issue }}
+    steps:
+      - name: Re-queue parents whose dependencies are done
+        run: |
+          set -euo pipefail
+
+          requeue_if_ready() {
+            local repo="$1" num="$2"
+            case "$repo" in "$OWNER"/*) ;; *) echo "skip $repo#$num: other owner"; return 0 ;; esac
+
+            local labels
+            labels=$(gh issue view "$num" -R "$repo" --json labels --jq '[.labels[].name] | join(",")')
+            case ",$labels," in *,agent:waiting-dep,*) ;; *) echo "skip $repo#$num: not waiting"; return 0 ;; esac
+
+            # Latest children marker written by the owner (the agent posts as the owner through the PAT)
+            local children
+            children=$(gh issue view "$num" -R "$repo" --json comments --jq '
+              [.comments[] | select(.author.login == env.OWNER) | .body
+                | capture("<!-- agent-children: (?<c>[^>]*?) -->") | .c] | last // ""')
+            if [ -z "$children" ]; then
+              echo "skip $repo#$num: no children marker"
+              return 0
+            fi
+
+            local pending="" dropped=""
+            for child in $children; do
+              local state
+              state=$(gh issue view "${child##*#}" -R "${child%#*}" --json state,stateReason --jq '.state + ":" + .stateReason')
+              case "$state" in
+                OPEN:*) pending="$pending $child" ;;
+                CLOSED:NOT_PLANNED) dropped="$dropped $child" ;;
+              esac
+            done
+
+            if [ -n "$dropped" ]; then
+              gh issue edit "$num" -R "$repo" --remove-label "agent:waiting-dep" --add-label "agent:blocked"
+              gh issue comment "$num" -R "$repo" --body "Dependencies closed as not planned:$dropped. Decide how to proceed and re-add \`agent:todo\`."
+            elif [ -n "$pending" ]; then
+              echo "wait $repo#$num: still open:$pending"
+            else
+              gh issue edit "$num" -R "$repo" --remove-label "agent:waiting-dep" --add-label "agent:todo"
+              gh issue comment "$num" -R "$repo" --body "All dependencies closed ($children). Re-queued for the agent."
+            fi
+          }
+
+          if [ "$CLOSED_ISSUE" -gt 0 ]; then
+            read -r author parent < <(gh issue view "$CLOSED_ISSUE" -R "$REPO" --json author,body --jq '
+              .author.login + " " + (((.body // "") | capture("<!-- agent-parent: (?<p>[^ ]+#[0-9]+) -->") | .p) // "")')
+            if [ "$author" != "$OWNER" ] || [ -z "${parent:-}" ]; then
+              echo "No agent parent for $REPO#$CLOSED_ISSUE"
+              exit 0
+            fi
+            requeue_if_ready "${parent%#*}" "${parent##*#}"
+          else
+            for num in $(gh issue list -R "$REPO" --label "agent:waiting-dep" --state open --json number --jq '.[].number'); do
+              requeue_if_ready "$REPO" "$num"
+            done
+          fi
