@@ -1,7 +1,8 @@
 name: agent
 
 # Software factory: label an issue with `agent:todo` to have Claude work on it.
-# Logic lives in ArthurWerle/ai-internal/.github/workflows (agent.yml, agent-deps.yml).
+# Add `agent:auto` too to have a reviewer agent approve and merge the PR.
+# Logic lives in ArthurWerle/ai-internal/.github/workflows (agent.yml, agent-review.yml, agent-deps.yml).
 
 on:
   issues:
@@ -24,6 +25,21 @@ jobs:
     uses: ArthurWerle/ai-internal/.github/workflows/agent.yml@main
     with:
       issue_number: ${{ github.event.issue.number || inputs.issue_number }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      AGENT_GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+
+  # Auto review, approve and merge for `agent:auto` issues (gate lives in agent-review.yml)
+  review:
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'labeled'
+        && github.event.label.name == 'agent:pr-open' && github.actor == github.repository_owner
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ArthurWerle/ai-internal/.github/workflows/agent-review.yml@main
+    with:
+      issue_number: ${{ github.event.issue.number }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       AGENT_GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
