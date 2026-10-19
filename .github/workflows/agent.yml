@@ -127,6 +127,8 @@ jobs:
                  `<!-- agent-review -->` comments from the reviewer agent: address it). If the PR has merge conflicts,
                  merge the default branch into it and resolve them.
                - Make the change, add or update tests, run the project's lint/typecheck/tests and fix failures.
+                 If CLAUDE.md names a verify command, run it and paste its summary in the PR body (failures it lists as a
+                 known baseline are not yours to fix unless the issue asks).
                - Commit, push, and open a PR (or update the existing one) whose body contains `Closes #${{ inputs.issue_number }}`.
                - Run `gh issue edit ${{ inputs.issue_number }} --add-label agent:pr-open`.
 

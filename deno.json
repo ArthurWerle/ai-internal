@@ -1,7 +1,15 @@
 {
   "tasks": {
     "dev": "deno run -A --env=stack.env main.ts",
-    "migrate": "deno run -A --env=stack.env db/drizzle/migrate.ts"
+    "migrate": "deno run -A --env=stack.env db/drizzle/migrate.ts",
+    "check": "deno check main.ts",
+    "lint": "deno lint",
+    "verify": "S=0; deno task lint || S=1; npm test || S=1; exit $S"
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-explicit-any", "no-process-global", "require-await"]
+    }
   },
   "imports": {
     "fastify": "npm:fastify@^5.8.5",
